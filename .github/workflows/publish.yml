@@ -1,0 +1,40 @@
+name: Publish
+
+# Publishes to PyPI when a GitHub release is published, for a tag named after the
+# package version (e.g. "v0.1.0"). Uses PyPI trusted publishing: no API token.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev]'
+      - run: make lint typecheck test
+      - run: make dist
+      - name: Check that the tag matches the package version
+        run: test -f "dist/a_jobseeker-${GITHUB_REF_NAME#v}-py3-none-any.whl"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/a-jobseeker
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

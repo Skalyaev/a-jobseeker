@@ -1,0 +1,75 @@
+{
+  "identity": {
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "email": "jane.doe@example.com",
+    "phone": "+33 6 00 00 00 00",
+    "location": "Paris, France",
+    "links": [
+      { "label": "LinkedIn", "url": "https://www.linkedin.com/in/jane-doe" },
+      { "label": "GitHub", "url": "https://github.com/jane-doe" }
+    ]
+  },
+  "headline": "Backend developer",
+  "summary": "Backend developer with 3 years of experience building high-traffic Python APIs.",
+  "objectives": "Join a product team working on data and performance topics.",
+  "experiences": [
+    {
+      "title": "Backend developer",
+      "company": "Example Inc.",
+      "company_description": "Logistics SaaS vendor",
+      "contract": "Permanent",
+      "location": "Paris",
+      "start": "2023-01",
+      "end": "present",
+      "description": "Design and maintenance of the parcel tracking APIs.",
+      "achievements": [
+        "Cut the tracking API response time by 40% with a Redis cache.",
+        "Set up CI/CD with GitLab CI and Docker."
+      ],
+      "technologies": ["Python", "FastAPI", "PostgreSQL", "Redis", "Docker", "GitLab CI"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "sync-tool",
+      "date": "2024-06",
+      "description": "Command line file synchronization tool.",
+      "technologies": ["Go"],
+      "url": "https://github.com/jane-doe/sync-tool"
+    }
+  ],
+  "skills": [
+    { "category": "Languages", "items": ["Python", "Go", "SQL"] },
+    { "category": "Tools", "items": ["Docker", "PostgreSQL", "Redis", "Git"] }
+  ],
+  "education": [
+    {
+      "degree": "MSc Computer Science",
+      "school": "Example University",
+      "location": "Lyon",
+      "start": "2020",
+      "end": "2022",
+      "description": ""
+    }
+  ],
+  "spoken_languages": [
+    { "language": "French", "level": "native" },
+    { "language": "English", "level": "fluent (C1)" }
+  ],
+  "certifications": [],
+  "interests": [],
+  "preferences": {
+    "target_roles": ["Backend Developer", "Software Engineer"],
+    "locations": ["Paris", "Remote France"],
+    "remote": "hybrid or full remote",
+    "contract_types": ["Permanent"],
+    "seniority": "mid-level",
+    "salary_min": "50k EUR gross per year",
+    "availability": "2 months notice",
+    "banned_keywords": ["PHP", "consulting firm"],
+    "banned_title_keywords": ["internship", "apprenticeship"],
+    "banned_companies": [],
+    "notes": "No frequent business travel."
+  }
+}

@@ -1,0 +1,18 @@
+#======== PYTHON
+__pycache__/
+*.py[cod]
+.venv/
+
+#======== PACKAGING
+*.egg-info/
+build/
+dist/
+
+#======== TOOLING
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+#======== AI
+.claude/

@@ -1,0 +1,63 @@
+{
+  "searches": [
+    {
+      "source": "linkedin",
+      "keywords": "backend developer",
+      "location": "Paris, Île-de-France, France",
+      "max_results": 25,
+      "posted_within": "day",
+      "options": {}
+    },
+    {
+      "source": "welcometothejungle",
+      "keywords": "backend developer",
+      "location": "Paris",
+      "max_results": 25,
+      "posted_within": "day",
+      "options": { "language": "fr" }
+    }
+  ],
+  "scraping": {
+    "request_delay": 1.5,
+    "cache_max_age_days": 7,
+    "francetravail": {
+      "client_id": "",
+      "client_secret_env": "A_JOBSEEKER_FRANCETRAVAIL_SECRET"
+    }
+  },
+  "matching": {
+    "min_score": 60,
+    "report_language": "English"
+  },
+  "templates": {
+    "cv": "classic",
+    "cover_letter": "classic"
+  },
+  "ai": {
+    "provider": "claude",
+    "path": null,
+    "batch_size": 5,
+    "concurrency": 3,
+    "timeout": 900,
+    "max_attempts": 2,
+    "claude": {
+      "model": "sonnet",
+      "safe_mode": true,
+      "max_budget_usd": null,
+      "extra_args": []
+    },
+    "generic": {
+      "args": []
+    }
+  },
+  "output": {
+    "type": "stdout",
+    "email": {
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "username": "",
+      "password_env": "A_JOBSEEKER_SMTP_PASSWORD",
+      "to": null
+    }
+  }
+}
