@@ -115,7 +115,7 @@ def test_html_list_items_stay_on_one_line() -> None:
 
 def test_search(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     scraper = WelcomeToTheJungleScraper(
-        ScrapingConfig(request_delay=0), OfferCache(tmp_path, 3600)
+        ScrapingConfig(request_delay=0, max_results=3), OfferCache(tmp_path, 3600)
     )
     requests_sent: list[tuple[str, str, JsonValue]] = []
 
@@ -144,7 +144,7 @@ def test_search(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         )
 
     monkeypatch.setattr(scraper, "request", fake_request)
-    query = SearchConfig(source="welcometothejungle", keywords="python", max_results=3)
+    query = SearchConfig(source="welcometothejungle", keywords="python")
 
     offers = list(scraper.search(query, skip=lambda job: job.id == "ref-2"))
 
@@ -167,10 +167,12 @@ RequestHandler = Callable[[str, str, JsonValue], requests.Response | None]
 
 
 def scraper_with(
-    monkeypatch: pytest.MonkeyPatch, handler: RequestHandler
+    monkeypatch: pytest.MonkeyPatch, handler: RequestHandler, max_results: int = 25
 ) -> WelcomeToTheJungleScraper:
     """Return a scraper whose requests are answered by ``handler``."""
-    scraper = WelcomeToTheJungleScraper(ScrapingConfig(request_delay=0))
+    scraper = WelcomeToTheJungleScraper(
+        ScrapingConfig(request_delay=0, max_results=max_results)
+    )
 
     def fake_request(
         method: str,
@@ -207,8 +209,8 @@ def test_search_edge_cases(monkeypatch: pytest.MonkeyPatch) -> None:
         hits: list[JsonValue] = [invalid, make_hit(0), make_hit(1), make_hit(2)]
         return make_response(url, {"hits": hits, "nbPages": 5})
 
-    scraper = scraper_with(monkeypatch, handler)
-    query = SearchConfig(source="welcometothejungle", keywords="x", max_results=2)
+    scraper = scraper_with(monkeypatch, handler, max_results=2)
+    query = SearchConfig(source="welcometothejungle", keywords="x")
     offers = list(scraper.search(query))
     # The invalid hit is ignored, and the search stops once max_results is reached.
     assert [o.id for o in offers] == ["ref-0", "ref-1"]
@@ -228,13 +230,15 @@ def test_search_stops_when_results_are_exhausted(
         hits: list[JsonValue] = [make_hit(len(pages))]
         return make_response(url, {"hits": hits, "nbPages": 1})
 
-    scraper = scraper_with(monkeypatch, handler)
-    query = SearchConfig(source="welcometothejungle", keywords="x", max_results=1)
-    assert len(list(scraper.search(query))) == 1
+    query = SearchConfig(source="welcometothejungle", keywords="x")
+    assert (
+        len(list(scraper_with(monkeypatch, handler, max_results=1).search(query))) == 1
+    )
     assert len(pages) == 1
 
-    query = SearchConfig(source="welcometothejungle", keywords="x", max_results=5)
-    assert len(list(scraper.search(query))) == 1
+    assert (
+        len(list(scraper_with(monkeypatch, handler, max_results=5).search(query))) == 1
+    )
     assert len(pages) == 2
 
 
@@ -273,6 +277,6 @@ def test_search_stops_exactly_at_max_results(monkeypatch: pytest.MonkeyPatch) ->
         hits: list[JsonValue] = [make_hit(0), make_hit(1)]
         return make_response(url, {"hits": hits, "nbPages": 3})
 
-    scraper = scraper_with(monkeypatch, handler)
-    query = SearchConfig(source="welcometothejungle", keywords="x", max_results=2)
+    scraper = scraper_with(monkeypatch, handler, max_results=2)
+    query = SearchConfig(source="welcometothejungle", keywords="x")
     assert len(list(scraper.search(query))) == 2

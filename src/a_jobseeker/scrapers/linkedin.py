@@ -130,13 +130,13 @@ class LinkedInScraper(JobScraper):
         """Yield the offers matching ``query`` (see ``JobScraper.search``)."""
         listed: set[str] = set()
         start = 0
-        while len(listed) < query.max_results:
+        while len(listed) < self.max_results:
             resp = self.get(SEARCH_URL, build_search_params(query, start))
             cards = parse_search_page(resp.text) if resp else []
             if not cards:
                 return
             for card in cards:
-                if card.id in listed or len(listed) >= query.max_results:
+                if card.id in listed or len(listed) >= self.max_results:
                     continue
                 listed.add(card.id)
                 offer = card_to_offer(card)

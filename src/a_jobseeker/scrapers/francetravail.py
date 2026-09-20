@@ -291,7 +291,7 @@ class FranceTravailScraper(JobScraper):
         if not LOCATION_OPTIONS & params.keys() and query.location:
             params = {**self.resolve_location(query.location), **params}
 
-        limit = min(query.max_results, MAX_OFFERS)
+        limit = min(self.max_results, MAX_OFFERS)
         start = 0
         while start < limit:
             end = min(start + PAGE_SIZE, limit) - 1

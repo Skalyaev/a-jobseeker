@@ -114,9 +114,13 @@ class FakeApi:
         return None if answer is None else make_response(url, answer)
 
 
-def make_scraper(monkeypatch: pytest.MonkeyPatch, api: FakeApi) -> FranceTravailScraper:
+def make_scraper(
+    monkeypatch: pytest.MonkeyPatch, api: FakeApi, max_results: int = 25
+) -> FranceTravailScraper:
     monkeypatch.setenv(SECRET_ENV, "secret")
-    config = ScrapingConfig.model_validate({"francetravail": {"client_id": "my-app"}})
+    config = ScrapingConfig.model_validate(
+        {"max_results": max_results, "francetravail": {"client_id": "my-app"}}
+    )
     scraper = FranceTravailScraper.from_config(config)
     monkeypatch.setattr(scraper, "request", api.request)
     return scraper
@@ -195,13 +199,10 @@ def test_unknown_location(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_search_paginates_and_converts(monkeypatch: pytest.MonkeyPatch) -> None:
     api = FakeApi(total=320)
-    scraper = make_scraper(monkeypatch, api)
+    scraper = make_scraper(monkeypatch, api, max_results=1000)
 
     offers = list(
-        scraper.search(
-            search(location="Lyon", max_results=1000),
-            skip=lambda job: job.id == "1ABC",
-        )
+        scraper.search(search(location="Lyon"), skip=lambda job: job.id == "1ABC")
     )
 
     assert len(offers) == 319
@@ -217,8 +218,8 @@ def test_search_honours_max_results_and_location_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     api = FakeApi(total=1000)
-    scraper = make_scraper(monkeypatch, api)
-    query = search(location="Nowhere", max_results=20, options={"departement": "33"})
+    scraper = make_scraper(monkeypatch, api, max_results=20)
+    query = search(location="Nowhere", options={"departement": "33"})
 
     assert len(list(scraper.search(query))) == 20
     assert [params["range"] for url, params in api.calls if url == SEARCH_URL] == [
@@ -300,8 +301,8 @@ def test_search_failures(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_invalid_offers_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     answer: JsonValue = {"resultats": [{"id": "no-title"}, make_offer(1)]}
-    scraper = make_scraper(monkeypatch, FakeApi(search_answer=answer))
-    offers = list(scraper.search(search(options={"departement": "33"}, max_results=2)))
+    scraper = make_scraper(monkeypatch, FakeApi(search_answer=answer), max_results=2)
+    offers = list(scraper.search(search(options={"departement": "33"})))
     assert [offer.id for offer in offers] == ["1ABC"]
 
 
@@ -315,7 +316,7 @@ def test_search_without_location(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_search_ends_on_empty_page(monkeypatch: pytest.MonkeyPatch) -> None:
     # 150 offers fill the first page exactly: the second page is empty (HTTP 204).
     api = FakeApi(total=150)
-    offers = list(make_scraper(monkeypatch, api).search(search(max_results=300)))
+    offers = list(make_scraper(monkeypatch, api, max_results=300).search(search()))
     assert len(offers) == 150
     ranges = [params["range"] for url, params in api.calls if url == SEARCH_URL]
     assert ranges == ["0-149", "150-299"]

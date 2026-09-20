@@ -219,7 +219,6 @@ The example below shows every key, with the default value of each one:
       "source": "linkedin", // see "Sources" below
       "keywords": "software engineer",
       "location": "Paris, Île-de-France, France",
-      "max_results": 25, // offers scraped per search
       "posted_within": "day", // day | week | month | any
       "options": {}, // source specific settings, see "Sources"
     },
@@ -227,6 +226,7 @@ The example below shows every key, with the default value of each one:
   "scraping": {
     "request_delay": 1.5, // seconds between two requests
     "cache_max_age_days": 7, // offer details older than this are downloaded again
+    "max_results": 25, // offers listed per search, on every source
     "francetravail": {
       // settings of the "francetravail" source, see "Sources"
       "client_id": "", // identifier of your francetravail.io application
@@ -346,7 +346,7 @@ Paris, Lyon and Marseille are resolved to the codes the API accepts.
 ```
 
 The API returns at most 1150 offers per search: narrow the search (keywords, location,
-`posted_within`) rather than raising `max_results` beyond.
+`posted_within`) rather than raising `scraping.max_results` beyond.
 
 Indeed is not supported: its pages are protected against automated access,
 and it has no job search API.
@@ -403,64 +403,6 @@ export A_JOBSEEKER_SMTP_PASSWORD="..."
 
 ```bash
 a-jobseeker run --output email
-```
-
-No email is sent when no new offer matches the profile.
-
-## Scheduled runs
-
-To receive the new matching offers by email twice a day,
-run `a-jobseeker run --output email` with a systemd user timer.
-Offers already evaluated are skipped (see [Files and directories](#files-and-directories)),
-so each email only lists new offers.
-
-The secrets go in a file only readable by you, one `NAME=value` per line:
-
-```bash
-# ~/.config/a-jobseeker/secrets.env
-A_JOBSEEKER_SMTP_PASSWORD=...
-A_JOBSEEKER_FRANCETRAVAIL_SECRET=...
-CLAUDE_CODE_OAUTH_TOKEN=... # printed by "claude setup-token", for a server without browser
-```
-
-```ini
-# ~/.config/systemd/user/a-jobseeker.service
-[Unit]
-Description=a-jobseeker run
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-EnvironmentFile=%h/.config/a-jobseeker/secrets.env
-# Programs installed by uv, pipx and the Claude Code installer live in ~/.local/bin.
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/a-jobseeker run --output email -v
-```
-
-```ini
-# ~/.config/systemd/user/a-jobseeker.timer
-[Unit]
-Description=a-jobseeker run at 8:00 and 20:00
-
-[Timer]
-OnCalendar=*-*-* 08,20:00:00 Europe/Paris
-# Runs a missed schedule (server down or rebooting) as soon as possible.
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-```bash
-chmod 600 ~/.config/a-jobseeker/secrets.env
-loginctl enable-linger "$USER" # runs the timer even when you are logged out
-systemctl --user daemon-reload
-systemctl --user enable --now a-jobseeker.timer
-
-systemctl --user list-timers a-jobseeker.timer # next runs
-systemctl --user start a-jobseeker.service # runs it now
-journalctl --user -u a-jobseeker.service # logs
 ```
 
 ## Templates

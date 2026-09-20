@@ -4,7 +4,6 @@
       "source": "linkedin",
       "keywords": "backend developer",
       "location": "Paris, Île-de-France, France",
-      "max_results": 25,
       "posted_within": "day",
       "options": {}
     },
@@ -12,7 +11,6 @@
       "source": "welcometothejungle",
       "keywords": "backend developer",
       "location": "Paris",
-      "max_results": 25,
       "posted_within": "day",
       "options": { "language": "fr" }
     }
@@ -20,6 +18,7 @@
   "scraping": {
     "request_delay": 1.5,
     "cache_max_age_days": 7,
+    "max_results": 25,
     "francetravail": {
       "client_id": "",
       "client_secret_env": "A_JOBSEEKER_FRANCETRAVAIL_SECRET"

@@ -106,7 +106,6 @@ class SearchConfig(StrictModel):
     source: str
     keywords: str
     location: str = ""
-    max_results: int = Field(default=25, ge=1)
     posted_within: Literal["day", "week", "month", "any"] = "week"
     options: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -154,6 +153,7 @@ class ScrapingConfig(PluginConfig):
 
     request_delay: float = Field(default=1.5, ge=0)
     cache_max_age_days: float = Field(default=7, ge=0)
+    max_results: int = Field(default=25, ge=1)
 
 
 class AIConfig(PluginConfig):

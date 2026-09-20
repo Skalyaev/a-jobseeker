@@ -34,6 +34,7 @@ class JobScraper(ABC):
         max_retries: int = 4,
     ) -> None:
         self.request_delay = config.request_delay
+        self.max_results = config.max_results
         self.cache = cache
         self.max_retries = max_retries
         self.session = requests.Session()
@@ -70,7 +71,7 @@ class JobScraper(ABC):
             query: The search to run.
             skip: Receives each listed offer, possibly without description. Skipped
                 offers are neither fetched in detail nor yielded, but count towards
-                ``query.max_results``.
+                ``scraping.max_results``.
 
         Raises:
             ScraperError: The source cannot be reached.

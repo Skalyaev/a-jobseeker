@@ -150,9 +150,9 @@ def test_search(monkeypatch: pytest.MonkeyPatch) -> None:
             return None  # Detail unavailable: the listed offer is kept.
         return make_response(url, DETAIL_HTML.encode())
 
-    scraper = LinkedInScraper(ScrapingConfig(request_delay=0))
+    scraper = LinkedInScraper(ScrapingConfig(request_delay=0, max_results=4))
     monkeypatch.setattr(scraper, "request", fake_request)
-    query = SearchConfig(source="linkedin", keywords="dev", max_results=4)
+    query = SearchConfig(source="linkedin", keywords="dev")
 
     offers = list(scraper.search(query, skip=lambda job: job.id == "3"))
 

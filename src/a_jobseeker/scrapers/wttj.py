@@ -258,12 +258,12 @@ class WelcomeToTheJungleScraper(JobScraper):
         body: dict[str, str | int] = {
             "query": query.keywords,
             "filters": build_filters(query, time.time()),
-            "hitsPerPage": min(PAGE_SIZE, query.max_results),
+            "hitsPerPage": min(PAGE_SIZE, self.max_results),
         }
 
         listed = 0
         page = 0
-        while listed < query.max_results:
+        while listed < self.max_results:
             resp = self.request(
                 "POST", url, json_body={**body, "page": page}, headers=headers
             )
@@ -271,7 +271,7 @@ class WelcomeToTheJungleScraper(JobScraper):
                 return
             results = _parse(SearchPage, resp)
             for raw in results.hits:
-                if listed >= query.max_results:
+                if listed >= self.max_results:
                     return
                 try:
                     hit = SearchHit.model_validate(raw)
