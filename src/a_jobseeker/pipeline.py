@@ -1,5 +1,6 @@
 """End-to-end run: scrape, filter, evaluate with the AI, render documents, publish."""
 
+import io
 import logging
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -76,8 +77,15 @@ class Pipeline:
         self.letter = LETTER_TEMPLATES.get(config.templates.cover_letter)()
         self.scrapers = build_scrapers(config, create_cache(config, dirs))
 
-    def run(self, options: RunOptions) -> RunReport:
+    def run(
+        self, options: RunOptions, log_buffer: io.StringIO | None = None
+    ) -> RunReport:
         """Run the whole pipeline and publish the matches.
+
+        Args:
+            options: Command line overrides of this run.
+            log_buffer: When given, its captured text is handed to the output (e.g.
+                attached to an email) alongside the matches.
 
         Raises:
             AIError: The AI backend cannot be run.
@@ -113,7 +121,8 @@ class Pipeline:
                 seen.save()
 
         matches.sort(key=lambda m: m.score, reverse=True)
-        self.output.publish(matches)
+        logs = log_buffer.getvalue() if log_buffer is not None else ""
+        self.output.publish(matches, logs)
         return RunReport(matches, matcher.failed_batches)
 
 

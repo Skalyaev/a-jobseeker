@@ -11,6 +11,7 @@ from a_jobseeker.config import Config, Profile
 from a_jobseeker.models import JobOffer
 from a_jobseeker.paths import AppDirs
 from a_jobseeker.state import SeenStore
+from fakes import FakeSMTP
 
 
 @pytest.fixture
@@ -119,6 +120,49 @@ def test_run_with_generic_ai(
     assert job.url in report
     assert len(list(dirs.applications.rglob("*.pdf"))) == 2
     assert job.key in SeenStore(dirs.seen_file)
+
+
+def test_run_with_email_output_attaches_logs(
+    smtp: type[FakeSMTP],
+    tmp_path: Path,
+    dir_options: list[str],
+    job: JobOffer,
+    cv_data: dict[str, Any],
+    letter_data: dict[str, Any],
+) -> None:
+    answer = {
+        "results": [
+            {
+                "job_id": job.key,
+                "match": True,
+                "score": 75,
+                "reason": "Strong Python match.",
+                "cv": cv_data,
+                "cover_letter": letter_data,
+            }
+        ]
+    }
+    code = cli.main(
+        [
+            "run",
+            *dir_options,
+            "-vv",
+            "--output", "email",
+            "--ai", "generic",
+            "--ai-path", fake_ai(tmp_path, answer),
+            "--jobs-file", write_jobs(tmp_path, job),
+        ]
+    )  # fmt: skip
+
+    assert code == cli.EXIT_OK
+    [message] = smtp.sessions[0].messages
+    [log_part] = [
+        part for part in message.iter_attachments() if part.get_filename() == "run.log"
+    ]
+    logs = log_part.get_content()
+    assert "DEBUG" in logs  # -vv enables debug level messages
+    assert "match=True" in logs
+    assert "offer(s) to evaluate after filtering" in logs
 
 
 def test_errors_are_reported(

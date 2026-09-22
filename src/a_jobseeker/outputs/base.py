@@ -28,8 +28,13 @@ class Output(ABC):
         """
 
     @abstractmethod
-    def publish(self, matches: Sequence[MatchResult]) -> None:
+    def publish(self, matches: Sequence[MatchResult], logs: str = "") -> None:
         """Publish the matching offers, sorted by decreasing score.
+
+        Args:
+            matches: The offers to publish.
+            logs: The run's log transcript. Implementations that can attach extra
+                context (e.g. email) may include it; others ignore it.
 
         Raises:
             OutputError: The results could not be published.
@@ -44,7 +49,7 @@ def format_text_report(matches: Sequence[MatchResult]) -> str:
     for index, match in enumerate(matches, 1):
         job = match.job
         lines += [
-            f"[{index}] {job.title} - {job.company} ({job.location})",
+            f"[{index}] {job.title} - {job.company} ({job.location}) [id: {job.id}]",
             f"    Score        : {match.score}/100",
             f"    Why          : {match.reason}",
             f"    Apply        : {job.url}",

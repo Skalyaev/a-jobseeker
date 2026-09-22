@@ -5,6 +5,7 @@ import ssl
 from collections.abc import Mapping, Sequence
 from email.message import EmailMessage
 from html import escape
+from pathlib import Path
 from typing import Any, Self
 
 from pydantic import Field
@@ -19,6 +20,7 @@ log = logging.getLogger(__name__)
 
 
 SMTPS_PORT = 465
+LOG_ATTACHMENT_NAME = "run.log"
 
 
 class EmailSettings(StrictModel):
@@ -57,12 +59,14 @@ class EmailOutput(Output):
             )
         return cls(parsed, to, password)
 
-    def publish(self, matches: Sequence[MatchResult]) -> None:
-        """Send a single email listing every matching offer."""
+    def publish(self, matches: Sequence[MatchResult], logs: str = "") -> None:
+        """Send a single email listing every matching offer, with ``logs`` attached."""
         if not matches:
             log.info("no matching offer, no email sent")
             return
-        message = self.build_message(matches, f"{len(matches)} job offer(s) for you")
+        message = self.build_message(
+            matches, f"{len(matches)} job offer(s) for you", logs
+        )
         try:
             self._send(message)
         except (OSError, smtplib.SMTPException) as e:
@@ -70,9 +74,9 @@ class EmailOutput(Output):
         log.info("email sent to %s", self.to)
 
     def build_message(
-        self, matches: Sequence[MatchResult], subject: str
+        self, matches: Sequence[MatchResult], subject: str, logs: str = ""
     ) -> EmailMessage:
-        """Build an email listing ``matches`` with their documents attached."""
+        """Build an email listing ``matches``, with the documents and logs attached."""
         message = EmailMessage()
         message["Subject"] = subject
         message["From"] = self.sender
@@ -86,8 +90,15 @@ class EmailOutput(Output):
                         path.read_bytes(),
                         maintype="application",
                         subtype="pdf",
-                        filename=path.name,
+                        filename=_attachment_name(path, match.job.id),
                     )
+        if logs:
+            message.add_attachment(
+                logs.encode("utf-8"),
+                maintype="text",
+                subtype="plain",
+                filename=LOG_ATTACHMENT_NAME,
+            )
         return message
 
     def _send(self, message: EmailMessage) -> None:
@@ -108,16 +119,28 @@ class EmailOutput(Output):
             smtp.send_message(message)
 
 
+def _attachment_name(path: Path, offer_id: str) -> str:
+    """Return ``path``'s filename with the offer id inserted, to tell attachments apart.
+
+    Every match's documents are otherwise named alike (``cv.pdf``,
+    ``cover-letter.pdf``), which is ambiguous once several are attached to the
+    same email.
+    """
+    return f"{path.stem}-{offer_id}{path.suffix}"
+
+
 def _html_report(matches: Sequence[MatchResult]) -> str:
     items = []
     for match in matches:
         job = match.job
         files = ", ".join(
-            escape(p.name) for p in (match.cv_path, match.letter_path) if p
+            escape(_attachment_name(p, job.id))
+            for p in (match.cv_path, match.letter_path)
+            if p
         )
         items.append(
             f"""<li style="margin-bottom:16px">
-  <strong>{escape(job.title)}</strong> -
+  <strong>{escape(job.title)}</strong> [id: {escape(job.id)}] -
   {escape(job.company)} ({escape(job.location)})<br>
   Score: {match.score}/100<br>
   <em>{escape(match.reason)}</em><br>

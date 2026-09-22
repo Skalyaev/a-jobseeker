@@ -1,4 +1,5 @@
 import argparse
+import io
 import logging
 import sys
 from collections.abc import Callable, Sequence
@@ -34,14 +35,18 @@ EXIT_PARTIAL_FAILURE = 1
 EXIT_ERROR = 2
 EXIT_INTERRUPTED = 130
 
+LOG_FORMAT = "%(levelname)s %(message)s"
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line interface and return the exit code."""
     args = build_parser().parse_args(argv)
-    logging.basicConfig(
-        level=[logging.WARNING, logging.INFO, logging.DEBUG][min(args.verbose, 2)],
-        format="%(levelname)s %(message)s",
-        stream=sys.stderr,
+    # basicConfig() only attaches the console handler once per process (harmless
+    # in production, where main() runs once); the level is reapplied every time so
+    # that repeated calls (e.g. in tests) still honor their own -v/-vv.
+    logging.basicConfig(format=LOG_FORMAT, stream=sys.stderr)
+    logging.getLogger().setLevel(
+        [logging.WARNING, logging.INFO, logging.DEBUG][min(args.verbose, 2)]
     )
     if args.verbose < 2:
         logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -92,31 +97,44 @@ def cmd_dirs(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Run the whole pipeline."""
-    dirs = app_dirs(args)
-    config = Config.load(dirs.config_file)
-    overrides = {
-        "provider": args.ai or config.ai.provider,
-        "path": args.ai_path or config.ai.path,
-    }
-    config = config.model_copy(update={"ai": config.ai.model_copy(update=overrides)})
-    profile = Profile.load(dirs.profile_file)
-
-    output_config = config.output.model_copy(
-        update={"type": args.output or config.output.type}
-    )
-    pipeline = Pipeline(
-        config,
-        profile,
-        create_backend(config.ai),
-        create_output(output_config, profile),
-        dirs,
-    )
-    report = pipeline.run(
-        RunOptions(
-            jobs_file=args.jobs_file, limit=args.limit, ignore_seen=args.ignore_seen
+    """Run the whole pipeline, capturing its logs for outputs that attach them."""
+    log_buffer = io.StringIO()
+    capture = logging.StreamHandler(log_buffer)
+    capture.setFormatter(logging.Formatter(LOG_FORMAT))
+    root_logger = logging.getLogger()
+    root_logger.addHandler(capture)
+    try:
+        dirs = app_dirs(args)
+        config = Config.load(dirs.config_file)
+        overrides = {
+            "provider": args.ai or config.ai.provider,
+            "path": args.ai_path or config.ai.path,
+        }
+        config = config.model_copy(
+            update={"ai": config.ai.model_copy(update=overrides)}
         )
-    )
+        profile = Profile.load(dirs.profile_file)
+
+        output_config = config.output.model_copy(
+            update={"type": args.output or config.output.type}
+        )
+        pipeline = Pipeline(
+            config,
+            profile,
+            create_backend(config.ai),
+            create_output(output_config, profile),
+            dirs,
+        )
+        report = pipeline.run(
+            RunOptions(
+                jobs_file=args.jobs_file,
+                limit=args.limit,
+                ignore_seen=args.ignore_seen,
+            ),
+            log_buffer,
+        )
+    finally:
+        root_logger.removeHandler(capture)
     if report.failed_batches:
         print(
             f"warning: {report.failed_batches} batch(es) could not be evaluated",

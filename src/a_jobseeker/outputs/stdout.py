@@ -27,6 +27,6 @@ class StdoutOutput(Output):
         parse_settings(StdoutSettings, settings, f"output.{cls.name}")
         return cls()
 
-    def publish(self, matches: Sequence[MatchResult]) -> None:
-        """Print the report."""
+    def publish(self, matches: Sequence[MatchResult], logs: str = "") -> None:
+        """Print the report; ``logs`` is dropped, already visible on the console."""
         print(format_text_report(matches), file=self.stream)

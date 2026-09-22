@@ -7,6 +7,7 @@ from a_jobseeker.config import Profile
 from a_jobseeker.models import JobOffer
 from a_jobseeker.templates.cv_classic import ClassicCVContent
 from a_jobseeker.templates.letter_classic import ClassicLetterContent
+from fakes import FakeSMTP
 
 
 @pytest.fixture(autouse=True)
@@ -123,3 +124,14 @@ def cv_content(cv_data: dict[str, Any]) -> ClassicCVContent:
 @pytest.fixture
 def letter_content(letter_data: dict[str, Any]) -> ClassicLetterContent:
     return ClassicLetterContent.model_validate(letter_data)
+
+
+@pytest.fixture
+def smtp(monkeypatch: pytest.MonkeyPatch) -> type[FakeSMTP]:
+    """Intercept the SMTP connections made through ``a_jobseeker.outputs.email``."""
+    FakeSMTP.sessions = []
+    FakeSMTP.fail = False
+    monkeypatch.setattr("a_jobseeker.outputs.email.smtplib.SMTP", FakeSMTP)
+    monkeypatch.setattr("a_jobseeker.outputs.email.smtplib.SMTP_SSL", FakeSMTP)
+    monkeypatch.setenv("A_JOBSEEKER_SMTP_PASSWORD", "secret")
+    return FakeSMTP

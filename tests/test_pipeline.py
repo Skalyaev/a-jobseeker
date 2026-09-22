@@ -94,6 +94,7 @@ def test_stdout_output(match: MatchResult) -> None:
     assert "Score        : 88/100" in report
     assert "Why          : good fit" in report
     assert match.job.url in report
+    assert "[id: 123]" in report
 
 
 def test_email_output(
@@ -112,7 +113,12 @@ def test_email_output(
 
     message = output.build_message([match], "Subject")
     attachments = [part.get_filename() for part in message.iter_attachments()]
-    assert attachments == ["cv.pdf", "cover-letter.pdf"]
+    assert attachments == ["cv-123.pdf", "cover-letter-123.pdf"]
+
+    html = message.get_body(("html",))
+    assert html is not None
+    assert "[id: 123]" in html.get_content()
+    assert "cv-123.pdf, cover-letter-123.pdf" in html.get_content()
 
 
 def test_output_registry(profile: Profile) -> None:
@@ -252,13 +258,15 @@ class RecordingOutput(Output):
 
     def __init__(self) -> None:
         self.published: list[MatchResult] = []
+        self.logs = ""
 
     @classmethod
     def from_config(cls, settings: Any, profile: Profile) -> "RecordingOutput":
         return cls()
 
-    def publish(self, matches: Sequence[MatchResult]) -> None:
+    def publish(self, matches: Sequence[MatchResult], logs: str = "") -> None:
         self.published = list(matches)
+        self.logs = logs
 
 
 class AcceptAllBackend(AIBackend):
@@ -312,11 +320,30 @@ def test_pipeline_run_scrapes_evaluates_and_publishes(
     )
     offers = [job, job.model_copy(update={"id": "2", "title": "Data Engineer"})]
     pipeline.scrapers = {"linkedin": ScriptedScraper({"python": offers})}
+    log_buffer = io.StringIO()
+    log_buffer.write("INFO some earlier line\n")
 
-    report = pipeline.run(RunOptions(ignore_seen=True))
+    report = pipeline.run(RunOptions(ignore_seen=True), log_buffer)
 
     # Sorted by decreasing score.
     assert [m.job.id for m in report.matches] == ["2", "123"]
     assert output.published == report.matches
+    assert output.logs == log_buffer.getvalue()
     assert report.failed_batches == 0
     assert not dirs.seen_file.exists()
+
+
+def test_pipeline_run_without_log_buffer(
+    tmp_path: Path, profile: Profile, job: JobOffer
+) -> None:
+    config = Config.model_validate(
+        {"searches": [{"source": "linkedin", "keywords": "python"}]}
+    )
+    dirs = AppDirs.resolve(tmp_path, tmp_path, tmp_path)
+    output = RecordingOutput()
+    pipeline = Pipeline(config, profile, AcceptAllBackend({}, {}), output, dirs)
+    pipeline.scrapers = {"linkedin": ScriptedScraper({"python": []})}
+
+    pipeline.run(RunOptions(ignore_seen=True))
+
+    assert output.logs == ""
