@@ -70,12 +70,3 @@ class CVTemplate(DocumentTemplate[Any], ABC):
     """A CV template. Implementations are registered in ``templates.CV_TEMPLATES``."""
 
     filename = "cv.pdf"
-
-
-class LetterTemplate(DocumentTemplate[Any], ABC):
-    """A cover letter template.
-
-    Implementations are registered in ``templates.LETTER_TEMPLATES``.
-    """
-
-    filename = "cover-letter.pdf"

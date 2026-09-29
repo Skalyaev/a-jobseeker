@@ -2,7 +2,7 @@
 
 A single AI request per batch of offers both selects the offers matching the
 profile and writes, for the selected ones, the content required by the chosen
-CV and cover letter templates.
+CV template.
 """
 
 import json
@@ -17,7 +17,7 @@ from a_jobseeker.ai import AIBackend
 from a_jobseeker.config import Profile
 from a_jobseeker.errors import AIError
 from a_jobseeker.models import JobOffer, MatchResult
-from a_jobseeker.templates import CVTemplate, LetterTemplate
+from a_jobseeker.templates import CVTemplate
 from a_jobseeker.templates.locale import document_language, get_locale
 
 log = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ MAX_DESCRIPTION_CHARS = 8000
 SYSTEM_PROMPT = """\
 You are an expert technical recruiter and career coach. You assess job offers \
 against a candidate's profile with honesty and rigor, then write tailored, truthful \
-application documents. You only use facts present in the candidate profile: you may \
+CVs. You only use facts present in the candidate profile: you may \
 select, reorder and rephrase them to fit an offer, but never invent experience, \
 skills, degrees, dates, contract types, outcomes or figures (no "reducing X by Y" \
 unless the profile says so)."""
@@ -52,10 +52,10 @@ For each offer:
 2. Give a "score" from 0 to 100: how well the candidate fits the offer, and the
    offer fits the candidate's preferences. Explain it in "reason": one short
    sentence (25 words at most), written in {report_language}.
-3. If "match" is true and "score" >= {min_score}, fill "cv" and "cover_letter"
-   following the templates below and the field descriptions of the JSON schema,
-   tailored to this offer, and entirely written in its "Documents language".
-   Otherwise set both to null.
+3. If "match" is true and "score" >= {min_score}, fill "cv" following the
+   template below and the field descriptions of the JSON schema, tailored to this
+   offer, and entirely written in its "Documents language". Otherwise set it to
+   null.
 
 # Candidate profile
 
@@ -66,10 +66,6 @@ For each offer:
 # CV template "{cv_name}"
 
 {cv_instructions}
-
-# Cover letter template "{letter_name}"
-
-{letter_instructions}
 
 # Job offers ({count})
 
@@ -82,14 +78,13 @@ class _Strict(BaseModel):
 
 
 class Evaluation(_Strict):
-    """The AI verdict on one offer. Document fields are narrowed per batch."""
+    """The AI verdict on one offer. The CV field is narrowed per batch."""
 
     job_id: str
     match: bool
     score: int = Field(ge=0, le=100)
     reason: str
     cv: BaseModel | None
-    cover_letter: BaseModel | None
 
 
 class Evaluations(_Strict):
@@ -106,16 +101,13 @@ class BatchResult:
     matches: list[MatchResult] = field(default_factory=list)
 
 
-def build_answer_model(
-    job_ids: Sequence[str], cv: CVTemplate, letter: LetterTemplate
-) -> type[Evaluations]:
-    """Build the answer model (its JSON schema) for a batch and the chosen templates."""
+def build_answer_model(job_ids: Sequence[str], cv: CVTemplate) -> type[Evaluations]:
+    """Build the answer model (its JSON schema) for a batch and the chosen template."""
     evaluation = create_model(
         "Evaluation",
         __base__=Evaluation,
         job_id=(str, Field(json_schema_extra={"enum": list(job_ids)})),
         cv=(cv.content_model | None, ...),
-        cover_letter=(letter.content_model | None, ...),
     )
     count = len(job_ids)
     return create_model(
@@ -126,7 +118,7 @@ def build_answer_model(
 
 
 def offer_language(job: JobOffer) -> str:
-    """Return the language code the documents of ``job`` must be written in."""
+    """Return the language code the CV for ``job`` must be written in."""
     return document_language(job.language, f"{job.title}\n{job.description}")
 
 
@@ -157,13 +149,11 @@ class Matcher:
         backend: AIBackend,
         profile: Profile,
         cv: CVTemplate,
-        letter: LetterTemplate,
         min_score: int,
         report_language: str = "English",
     ) -> None:
         self.backend = backend
         self.cv = cv
-        self.letter = letter
         self.min_score = min_score
         self.report_language = report_language
         self.failed_batches = 0
@@ -180,8 +170,6 @@ class Matcher:
             profile=self._profile,
             cv_name=self.cv.name,
             cv_instructions=self.cv.instructions,
-            letter_name=self.letter.name,
-            letter_instructions=self.letter.instructions,
             count=len(jobs),
             offers="\n\n".join(map(format_offer, jobs, languages)),
         )
@@ -212,7 +200,7 @@ class Matcher:
     def evaluate_batch(self, batch: Sequence[JobOffer]) -> BatchResult:
         """Evaluate a batch of offers in a single AI request.
 
-        Offers missing from the answer, or selected without document content, are
+        Offers missing from the answer, or selected without CV content, are
         left out of ``evaluated`` so that they are retried on a later run.
 
         Raises:
@@ -222,7 +210,7 @@ class Matcher:
         pending = {
             job.key: (job, lang) for job, lang in zip(batch, languages, strict=True)
         }
-        model = build_answer_model(list(pending), self.cv, self.letter)
+        model = build_answer_model(list(pending), self.cv)
         answer = self.backend.ask(
             self.build_prompt(batch, languages), SYSTEM_PROMPT, model
         )
@@ -242,9 +230,9 @@ class Matcher:
             )
             if not evaluation.match or evaluation.score < self.min_score:
                 result.evaluated.append(job)
-            elif evaluation.cv is None or evaluation.cover_letter is None:
+            elif evaluation.cv is None:
                 log.warning(
-                    "offer %s selected without document content, retried later", job.key
+                    "offer %s selected without CV content, retried later", job.key
                 )
             else:
                 result.evaluated.append(job)
@@ -254,9 +242,6 @@ class Matcher:
                         score=evaluation.score,
                         reason=evaluation.reason,
                         cv_content=_with_language(evaluation.cv, language),
-                        letter_content=_with_language(
-                            evaluation.cover_letter, language
-                        ),
                     )
                 )
         if pending:

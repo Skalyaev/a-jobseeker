@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "a-jobseeker"
 dynamic = ["version"]
-description = "Scrapes job offers, selects the ones matching your profile with an AI and generates a tailored CV and cover letter for each."
+description = "Scrapes job offers, selects the ones matching your profile with an AI and generates a tailored CV for each."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Skalyaev" }]
-keywords = ["jobs", "job-search", "linkedin", "cv", "resume", "cover-letter", "ai", "claude"]
+keywords = ["jobs", "job-search", "linkedin", "cv", "resume", "ai", "claude"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",

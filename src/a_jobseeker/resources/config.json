@@ -29,8 +29,7 @@
     "report_language": "English"
   },
   "templates": {
-    "cv": "classic",
-    "cover_letter": "classic"
+    "cv": "classic"
   },
   "ai": {
     "provider": "claude",
@@ -56,7 +55,8 @@
       "smtp_port": 587,
       "username": "",
       "password_env": "A_JOBSEEKER_SMTP_PASSWORD",
-      "to": null
+      "to": null,
+      "cv_base_url": "http://127.0.0.1:8000"
     }
   }
 }

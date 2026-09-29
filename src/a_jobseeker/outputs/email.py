@@ -7,6 +7,7 @@ from email.message import EmailMessage
 from html import escape
 from pathlib import Path
 from typing import Any, Self
+from urllib.parse import quote
 
 from pydantic import Field
 
@@ -14,6 +15,7 @@ from a_jobseeker.config import Profile, StrictModel
 from a_jobseeker.errors import ConfigError, OutputError
 from a_jobseeker.models import MatchResult
 from a_jobseeker.outputs.base import Output, format_text_report
+from a_jobseeker.paths import AppDirs
 from a_jobseeker.registry import parse_settings
 
 log = logging.getLogger(__name__)
@@ -31,22 +33,28 @@ class EmailSettings(StrictModel):
     username: str = ""
     password_env: str = "A_JOBSEEKER_SMTP_PASSWORD"
     to: str | None = None
+    cv_base_url: str = Field(pattern=r"^https?://")
 
 
 class EmailOutput(Output):
-    """Sends the report by email, with the documents attached."""
+    """Sends the report by email, with a download link to each CV."""
 
     name = "email"
-    description = "email report with the documents attached"
+    description = "email report with a download link to each CV"
 
-    def __init__(self, settings: EmailSettings, to: str, password: str) -> None:
+    def __init__(
+        self, settings: EmailSettings, to: str, password: str, applications: Path
+    ) -> None:
         self.settings = settings
         self.to = to
         self.password = password
         self.sender = settings.username or to
+        self.applications = applications
 
     @classmethod
-    def from_config(cls, settings: Mapping[str, Any], profile: Profile) -> Self:
+    def from_config(
+        cls, settings: Mapping[str, Any], profile: Profile, dirs: AppDirs
+    ) -> Self:
         """Build the output; the recipient defaults to the profile email."""
         parsed = parse_settings(EmailSettings, settings, f"output.{cls.name}")
         to = parsed.to or profile.identity.email
@@ -57,7 +65,7 @@ class EmailOutput(Output):
             raise ConfigError(
                 f"output.email: SMTP password missing, set ${parsed.password_env}"
             )
-        return cls(parsed, to, password)
+        return cls(parsed, to, password, dirs.applications)
 
     def publish(self, matches: Sequence[MatchResult], logs: str = "") -> None:
         """Send a single email listing every matching offer, with ``logs`` attached."""
@@ -76,22 +84,17 @@ class EmailOutput(Output):
     def build_message(
         self, matches: Sequence[MatchResult], subject: str, logs: str = ""
     ) -> EmailMessage:
-        """Build an email listing ``matches``, with the documents and logs attached."""
+        """Build an email listing ``matches`` with their CV links, and logs attached.
+
+        Raises:
+            OutputError: A CV is outside the applications directory, so it has no URL.
+        """
         message = EmailMessage()
         message["Subject"] = subject
         message["From"] = self.sender
         message["To"] = self.to
-        message.set_content(format_text_report(matches))
-        message.add_alternative(_html_report(matches), subtype="html")
-        for match in matches:
-            for path in (match.cv_path, match.letter_path):
-                if path:
-                    message.add_attachment(
-                        path.read_bytes(),
-                        maintype="application",
-                        subtype="pdf",
-                        filename=_attachment_name(path, match.job.id),
-                    )
+        message.set_content(format_text_report(matches, self.cv_url))
+        message.add_alternative(self._html_report(matches), subtype="html")
         if logs:
             message.add_attachment(
                 logs.encode("utf-8"),
@@ -118,37 +121,38 @@ class EmailOutput(Output):
                 smtp.login(self.settings.username, self.password)
             smtp.send_message(message)
 
+    def cv_url(self, path: Path) -> str:
+        """Return the URL under which ``serve`` publishes the CV at ``path``.
 
-def _attachment_name(path: Path, offer_id: str) -> str:
-    """Return ``path``'s filename with the offer id inserted, to tell attachments apart.
+        Raises:
+            OutputError: ``path`` is outside the applications directory.
+        """
+        try:
+            relative = path.relative_to(self.applications)
+        except ValueError as e:
+            raise OutputError(
+                f"email: {path} is outside {self.applications}, it cannot be linked"
+            ) from e
+        base = self.settings.cv_base_url.rstrip("/")
+        return f"{base}/{quote(relative.as_posix())}"
 
-    Every match's documents are otherwise named alike (``cv.pdf``,
-    ``cover-letter.pdf``), which is ambiguous once several are attached to the
-    same email.
-    """
-    return f"{path.stem}-{offer_id}{path.suffix}"
-
-
-def _html_report(matches: Sequence[MatchResult]) -> str:
-    items = []
-    for match in matches:
-        job = match.job
-        files = ", ".join(
-            escape(_attachment_name(p, job.id))
-            for p in (match.cv_path, match.letter_path)
-            if p
-        )
-        items.append(
-            f"""<li style="margin-bottom:16px">
+    def _html_report(self, matches: Sequence[MatchResult]) -> str:
+        items = []
+        for match in matches:
+            job = match.job
+            links = [f'<a href="{escape(job.url)}">Apply</a>']
+            if match.cv_path:
+                links.append(f'<a href="{escape(self.cv_url(match.cv_path))}">CV</a>')
+            items.append(
+                f"""<li style="margin-bottom:16px">
   <strong>{escape(job.title)}</strong> [id: {escape(job.id)}] -
   {escape(job.company)} ({escape(job.location)})<br>
   Score: {match.score}/100<br>
   <em>{escape(match.reason)}</em><br>
-  <a href="{escape(job.url)}">Apply</a><br>
-  Attachments: {files}
+  {" &middot; ".join(links)}
 </li>"""
-        )
-    return f"""<html><body style="font-family:Arial,sans-serif">
+            )
+        return f"""<html><body style="font-family:Arial,sans-serif">
 <p>{len(matches)} offer(s) matching your profile:</p>
 <ol>{"".join(items)}</ol>
 </body></html>"""

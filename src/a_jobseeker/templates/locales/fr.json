@@ -25,11 +25,6 @@
     "education": "Formation",
     "languages": "Langues"
   },
-  "letter": {
-    "subject": "Objet",
-    "dated": "Le {date}",
-    "dated_with_city": "{city}, le {date}"
-  },
   "stopwords": [
     "le",
     "la",

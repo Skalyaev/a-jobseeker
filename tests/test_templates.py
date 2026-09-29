@@ -1,4 +1,3 @@
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +9,6 @@ from pypdf import PdfReader
 from a_jobseeker.config import Profile
 from a_jobseeker.models import JobOffer
 from a_jobseeker.templates.cv_classic import ClassicCV, ClassicCVContent
-from a_jobseeker.templates.letter_classic import ClassicLetter, ClassicLetterContent
 from a_jobseeker.templates.locale import get_locale
 from a_jobseeker.templates.pdf import clean
 
@@ -66,24 +64,6 @@ def test_cv_headings_follow_language(
     text = extract_text(path)
     assert locale.cv.experiences.upper() in text
     assert f"Languages{locale.colon} Python" in text
-
-
-def test_letter(
-    tmp_path: Path,
-    profile: Profile,
-    job: JobOffer,
-    letter_content: ClassicLetterContent,
-) -> None:
-    path = tmp_path / "letter.pdf"
-    template = ClassicLetter()
-    template.render(letter_content, profile, job, path)
-
-    text = extract_text(path)
-    assert len(PdfReader(path).pages) == 1
-    assert "Subject: Application for the Backend Python Developer position" in text
-    assert f"Paris, {get_locale('en').format_date(date.today())}" in text
-    assert "Second paragraph." in text
-    assert template.filename == "cover-letter.pdf"
 
 
 def test_minimal_cv(tmp_path: Path, job: JobOffer, cv_data: dict[str, Any]) -> None:
@@ -142,16 +122,6 @@ def test_long_cv_keeps_the_default_layout(
     # Bullets split across pages keep their whole text.
     text = extract_text(path)
     assert "Achievement 39" in text
-
-
-def test_letter_without_address_nor_city(
-    tmp_path: Path, job: JobOffer, letter_content: ClassicLetterContent
-) -> None:
-    path = tmp_path / "letter.pdf"
-    anonymous = Profile({"identity": {"first_name": "Jane"}})
-    homeless_job = job.model_copy(update={"location": ""})
-    ClassicLetter().render(letter_content, anonymous, homeless_job, path)
-    assert get_locale("en").format_date(date.today()) in extract_text(path)
 
 
 def test_empty_cv(tmp_path: Path, profile: Profile, job: JobOffer) -> None:

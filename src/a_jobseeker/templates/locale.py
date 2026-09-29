@@ -29,14 +29,6 @@ class CVLabels(_LocaleModel):
     languages: str
 
 
-class LetterLabels(_LocaleModel):
-    """Cover letter labels. ``dated*`` accept ``{date}`` and ``{city}`` placeholders."""
-
-    subject: str
-    dated: str
-    dated_with_city: str
-
-
 class Locale(_LocaleModel):
     """Translations for one document language."""
 
@@ -47,7 +39,6 @@ class Locale(_LocaleModel):
     first_day: str
     colon: str
     cv: CVLabels
-    letter: LetterLabels
     stopwords: frozenset[str]
 
     def format_date(self, day: date) -> str:

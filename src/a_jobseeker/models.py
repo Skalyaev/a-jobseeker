@@ -28,12 +28,10 @@ class JobOffer(BaseModel):
 
 @dataclass
 class MatchResult:
-    """An offer selected by the AI, with the generated documents content."""
+    """An offer selected by the AI, with the generated CV content."""
 
     job: JobOffer
     score: int
     reason: str
     cv_content: BaseModel
-    letter_content: BaseModel
     cv_path: Path | None = None
-    letter_path: Path | None = None

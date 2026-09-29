@@ -1,4 +1,4 @@
-"""End-to-end run: scrape, filter, evaluate with the AI, render documents, publish."""
+"""End-to-end run: scrape, filter, evaluate with the AI, render CVs, publish."""
 
 import io
 import logging
@@ -22,12 +22,7 @@ from a_jobseeker.outputs import Output
 from a_jobseeker.paths import AppDirs, slugify
 from a_jobseeker.scrapers import SCRAPERS, JobScraper, SkipPredicate
 from a_jobseeker.state import SeenStore
-from a_jobseeker.templates import (
-    CV_TEMPLATES,
-    LETTER_TEMPLATES,
-    CVTemplate,
-    LetterTemplate,
-)
+from a_jobseeker.templates import CV_TEMPLATES, CVTemplate
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +49,7 @@ class RunReport:
 
 
 class Pipeline:
-    """Wires the configured scrapers, AI backend, templates and output.
+    """Wires the configured scrapers, AI backend, CV template and output.
 
     Every component is built in the constructor, so configuration errors are raised
     before any network or AI call.
@@ -74,7 +69,6 @@ class Pipeline:
         self.backend = backend
         self.output = output
         self.cv = CV_TEMPLATES.get(config.templates.cv)()
-        self.letter = LETTER_TEMPLATES.get(config.templates.cover_letter)()
         self.scrapers = build_scrapers(config, create_cache(config, dirs))
 
     def run(
@@ -104,7 +98,6 @@ class Pipeline:
             self.backend,
             self.profile,
             self.cv,
-            self.letter,
             self.config.matching.min_score,
             self.config.matching.report_language,
         )
@@ -113,7 +106,7 @@ class Pipeline:
         for batch in matcher.evaluate(jobs, ai.batch_size, ai.concurrency):
             for match in batch.matches:
                 directory = application_dir(self.dirs.applications, match.job)
-                render_match(match, self.profile, self.cv, self.letter, directory)
+                render_match(match, self.profile, self.cv, directory)
                 matches.append(match)
             if seen is not None:
                 for job in batch.evaluated:
@@ -239,7 +232,6 @@ class ApplicationRecord(BaseModel):
     score: int
     reason: str = ""
     cv: DocumentRecord
-    cover_letter: DocumentRecord
 
 
 def application_dir(base: Path, job: JobOffer) -> Path:
@@ -257,32 +249,26 @@ def render_match(
     match: MatchResult,
     profile: Profile,
     cv: CVTemplate,
-    letter: LetterTemplate,
     directory: Path,
 ) -> None:
-    """Render the CV and cover letter PDFs, saving ``application.json`` alongside."""
+    """Render the CV PDF, saving ``application.json`` alongside."""
     directory.mkdir(parents=True, exist_ok=True)
     match.cv_path = directory / cv.filename
-    match.letter_path = directory / letter.filename
     cv.render(match.cv_content, profile, match.job, match.cv_path)
-    letter.render(match.letter_content, profile, match.job, match.letter_path)
 
     record = ApplicationRecord(
         job=match.job,
         score=match.score,
         reason=match.reason,
         cv=DocumentRecord(template=cv.name, content=match.cv_content.model_dump()),
-        cover_letter=DocumentRecord(
-            template=letter.name, content=match.letter_content.model_dump()
-        ),
     )
     (directory / APPLICATION_FILE).write_text(
         record.model_dump_json(indent=2), encoding="utf-8"
     )
 
 
-def load_application(path: Path) -> tuple[MatchResult, CVTemplate, LetterTemplate]:
-    """Load an ``application.json`` file, validating its content against its templates.
+def load_application(path: Path) -> tuple[MatchResult, CVTemplate]:
+    """Load an ``application.json`` file, validating its content against its template.
 
     Raises:
         ConfigError: The file is missing, invalid or references an unknown template.
@@ -290,16 +276,12 @@ def load_application(path: Path) -> tuple[MatchResult, CVTemplate, LetterTemplat
     try:
         record = ApplicationRecord.model_validate_json(path.read_text(encoding="utf-8"))
         cv = CV_TEMPLATES.get(record.cv.template)()
-        letter = LETTER_TEMPLATES.get(record.cover_letter.template)()
         match = MatchResult(
             job=record.job,
             score=record.score,
             reason=record.reason,
             cv_content=cv.content_model.model_validate(record.cv.content),
-            letter_content=letter.content_model.model_validate(
-                record.cover_letter.content
-            ),
         )
     except (OSError, ValidationError) as e:
         raise ConfigError(f"invalid application file {path}: {e}") from None
-    return match, cv, letter
+    return match, cv

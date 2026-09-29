@@ -5,6 +5,7 @@ from typing import Any, Self, TextIO
 from a_jobseeker.config import Profile, StrictModel
 from a_jobseeker.models import MatchResult
 from a_jobseeker.outputs.base import Output, format_text_report
+from a_jobseeker.paths import AppDirs
 from a_jobseeker.registry import parse_settings
 
 
@@ -22,7 +23,9 @@ class StdoutOutput(Output):
         self.stream = stream or sys.stdout
 
     @classmethod
-    def from_config(cls, settings: Mapping[str, Any], profile: Profile) -> Self:
+    def from_config(
+        cls, settings: Mapping[str, Any], profile: Profile, dirs: AppDirs
+    ) -> Self:
         """Build the output from its settings section."""
         parse_settings(StdoutSettings, settings, f"output.{cls.name}")
         return cls()

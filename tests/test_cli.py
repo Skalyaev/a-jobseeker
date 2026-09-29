@@ -1,6 +1,7 @@
 import json
 import runpy
 import sys
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -74,7 +75,6 @@ def test_run_with_generic_ai(
     capsys: pytest.CaptureFixture[str],
     job: JobOffer,
     cv_data: dict[str, Any],
-    letter_data: dict[str, Any],
 ) -> None:
     answer = {
         "results": [
@@ -84,7 +84,6 @@ def test_run_with_generic_ai(
                 "score": 75,
                 "reason": "Strong Python match.",
                 "cv": cv_data,
-                "cover_letter": letter_data,
             }
         ]
     }
@@ -116,9 +115,9 @@ def test_run_with_generic_ai(
     assert code == 0
     report = capsys.readouterr().out
     assert "1 offer(s) matching your profile" in report
-    assert "Why          : Strong Python match." in report
+    assert "Why   : Strong Python match." in report
     assert job.url in report
-    assert len(list(dirs.applications.rglob("*.pdf"))) == 2
+    assert len(list(dirs.applications.rglob("*.pdf"))) == 1
     assert job.key in SeenStore(dirs.seen_file)
 
 
@@ -128,7 +127,6 @@ def test_run_with_email_output_attaches_logs(
     dir_options: list[str],
     job: JobOffer,
     cv_data: dict[str, Any],
-    letter_data: dict[str, Any],
 ) -> None:
     answer = {
         "results": [
@@ -138,7 +136,6 @@ def test_run_with_email_output_attaches_logs(
                 "score": 75,
                 "reason": "Strong Python match.",
                 "cv": cv_data,
-                "cover_letter": letter_data,
             }
         ]
     }
@@ -188,9 +185,8 @@ def test_list(capsys: pytest.CaptureFixture[str]) -> None:
         "Sources:",
         "  francetravail",
         "  claude       default path: claude",
-        "  email        email report with the documents attached",
+        "  email        email report with a download link to each CV",
         "CV templates:",
-        "Cover letter templates:",
     ):
         assert line in out
 
@@ -220,7 +216,6 @@ def test_render(
     dir_options: list[str],
     job: JobOffer,
     cv_data: dict[str, Any],
-    letter_data: dict[str, Any],
 ) -> None:
     folder = tmp_path / "application"
     folder.mkdir()
@@ -228,15 +223,11 @@ def test_render(
         "job": job.model_dump(),
         "score": 80,
         "cv": {"template": "classic", "content": cv_data},
-        "cover_letter": {"template": "classic", "content": letter_data},
     }
     (folder / "application.json").write_text(json.dumps(record))
 
     assert cli.main(["render", *dir_options, str(folder / "application.json")]) == 0
-    assert capsys.readouterr().out.split() == [
-        str(folder / "cv.pdf"),
-        str(folder / "cover-letter.pdf"),
-    ]
+    assert capsys.readouterr().out.split() == [str(folder / "cv.pdf")]
 
 
 def test_failed_batches(
@@ -267,3 +258,16 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exit_info:
         runpy.run_module("a_jobseeker", run_name="__main__")
     assert exit_info.value.code == 0
+
+
+def test_serve(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    dirs: AppDirs,
+    dir_options: list[str],
+) -> None:
+    monkeypatch.setattr(ThreadingHTTPServer, "serve_forever", lambda self: None)
+    assert cli.main(["serve", *dir_options, "--port", "0"]) == cli.EXIT_OK
+    assert f"serving the CVs of {dirs.applications} on http://127.0.0.1:" in (
+        capsys.readouterr().err
+    )

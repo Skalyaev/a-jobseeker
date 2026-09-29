@@ -6,7 +6,6 @@ import pytest
 from a_jobseeker.config import Profile
 from a_jobseeker.models import JobOffer
 from a_jobseeker.templates.cv_classic import ClassicCVContent
-from a_jobseeker.templates.letter_classic import ClassicLetterContent
 from fakes import FakeSMTP
 
 
@@ -104,26 +103,8 @@ def cv_data() -> dict[str, Any]:
 
 
 @pytest.fixture
-def letter_data() -> dict[str, Any]:
-    return {
-        "language": "en",
-        "recipient_company": "Acme",
-        "recipient_address": "",
-        "subject": "Application for the Backend Python Developer position",
-        "salutation": "Dear Hiring Manager,",
-        "paragraphs": ["First paragraph.", "Second paragraph."],
-        "closing": "Sincerely,",
-    }
-
-
-@pytest.fixture
 def cv_content(cv_data: dict[str, Any]) -> ClassicCVContent:
     return ClassicCVContent.model_validate(cv_data)
-
-
-@pytest.fixture
-def letter_content(letter_data: dict[str, Any]) -> ClassicLetterContent:
-    return ClassicLetterContent.model_validate(letter_data)
 
 
 @pytest.fixture

@@ -45,14 +45,14 @@ class StrictModel(BaseModel):
 
 
 class Link(StrictModel):
-    """A link shown in the documents header."""
+    """A link shown in the CV header."""
 
     label: str = ""
     url: str
 
 
 class Identity(StrictModel):
-    """Candidate contact details, copied verbatim into the documents."""
+    """Candidate contact details, copied verbatim into the CV."""
 
     first_name: str = Field(min_length=1)
     last_name: str = ""
@@ -121,7 +121,6 @@ class TemplatesConfig(StrictModel):
     """Names of the document templates to use."""
 
     cv: str = "classic"
-    cover_letter: str = "classic"
 
 
 class PluginConfig(BaseModel):

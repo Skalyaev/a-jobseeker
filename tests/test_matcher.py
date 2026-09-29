@@ -17,7 +17,6 @@ from a_jobseeker.matcher import (
 from a_jobseeker.models import JobOffer
 from a_jobseeker.templates import DocumentContent
 from a_jobseeker.templates.cv_classic import ClassicCV, ClassicCVContent
-from a_jobseeker.templates.letter_classic import ClassicLetter
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -61,7 +60,7 @@ def make_jobs(count: int) -> list[JobOffer]:
 
 
 def make_matcher(backend: AIBackend, profile: Profile) -> Matcher:
-    return Matcher(backend, profile, ClassicCV(), ClassicLetter(), 60)
+    return Matcher(backend, profile, ClassicCV(), 60)
 
 
 def iter_objects(schema: Any) -> Iterator[dict[str, Any]]:
@@ -76,9 +75,7 @@ def iter_objects(schema: Any) -> Iterator[dict[str, Any]]:
 
 
 def test_answer_schema_is_strict() -> None:
-    schema = build_answer_model(
-        ["linkedin:1"], ClassicCV(), ClassicLetter()
-    ).model_json_schema()
+    schema = build_answer_model(["linkedin:1"], ClassicCV()).model_json_schema()
     objects = list(iter_objects(schema))
     assert len(objects) > 5
     for obj in objects:
@@ -86,7 +83,7 @@ def test_answer_schema_is_strict() -> None:
         assert set(obj["required"]) == set(obj["properties"])
     evaluation = schema["$defs"]["Evaluation"]["properties"]
     assert evaluation["job_id"]["enum"] == ["linkedin:1"]
-    # The documents language is chosen by the program, not by the AI.
+    # The CV language is chosen by the program, not by the AI.
     assert "language" not in schema["$defs"]["ClassicCVContent"]["properties"]
     assert schema["properties"]["results"]["minItems"] == 1
 
@@ -98,39 +95,35 @@ def test_prompt_contains_profile_templates_and_offers(profile: Profile) -> None:
     assert '"first_name":"Jane"' in prompt
     assert "Documents language: French" in prompt
     assert 'CV template "classic"' in prompt
-    assert 'Cover letter template "classic"' in prompt
     assert '<offer job_id="linkedin:1">' in prompt
     assert ">= 60" in prompt
     assert "written in English" in prompt
 
 
-def test_evaluate_batch(
-    profile: Profile, cv_data: dict[str, Any], letter_data: dict[str, Any]
-) -> None:
-    def result(index: int, match: bool, score: int, documents: bool) -> dict[str, Any]:
+def test_evaluate_batch(profile: Profile, cv_data: dict[str, Any]) -> None:
+    def result(index: int, match: bool, score: int, cv: bool) -> dict[str, Any]:
         return {
             "job_id": f"linkedin:{index}",
             "match": match,
             "score": score,
             "reason": "because",
-            "cv": cv_data if documents else None,
-            "cover_letter": letter_data if documents else None,
+            "cv": cv_data if cv else None,
         }
 
     answer = {
         "results": [
-            result(0, True, 90, documents=True),
-            result(1, False, 20, documents=False),
-            result(2, True, 50, documents=False),
-            result(3, True, 80, documents=False),
-            result(9, True, 99, documents=False),
+            result(0, True, 90, cv=True),
+            result(1, False, 20, cv=False),
+            result(2, True, 50, cv=False),
+            result(3, True, 80, cv=False),
+            result(9, True, 99, cv=False),
         ]
     }
     batch = make_matcher(FakeBackend(answer), profile).evaluate_batch(make_jobs(5))
 
     assert [m.job.id for m in batch.matches] == ["0"]
     assert isinstance(batch.matches[0].cv_content, ClassicCVContent)
-    # Offer 3 lacks its documents and offer 4 is missing: both are retried later.
+    # Offer 3 lacks its CV and offer 4 is missing: both are retried later.
     assert [job.id for job in batch.evaluated] == ["0", "1", "2"]
 
 
@@ -173,8 +166,8 @@ def test_offer_language(job: JobOffer) -> None:
     assert offer_language(french.model_copy(update={"language": "en"})) == "en"
 
 
-def test_documents_follow_the_offer_language(
-    profile: Profile, cv_data: dict[str, Any], letter_data: dict[str, Any]
+def test_cv_follows_the_offer_language(
+    profile: Profile, cv_data: dict[str, Any]
 ) -> None:
     jobs = make_jobs(2)
     jobs[0] = jobs[0].model_copy(update={"description": "We are hiring a developer."})
@@ -189,7 +182,6 @@ def test_documents_follow_the_offer_language(
             "score": 90,
             "reason": "good fit",
             "cv": cv_data,
-            "cover_letter": letter_data,
         }
 
     answer = {"results": [result(0), result(1)]}
@@ -198,13 +190,12 @@ def test_documents_follow_the_offer_language(
     languages = []
     for match in batch.matches:
         assert isinstance(match.cv_content, DocumentContent)
-        assert isinstance(match.letter_content, DocumentContent)
-        languages.append((match.cv_content.language, match.letter_content.language))
-    assert languages == [("en", "en"), ("fr", "fr")]
+        languages.append(match.cv_content.language)
+    assert languages == ["en", "fr"]
 
 
 def test_batches_are_evaluated_concurrently(
-    profile: Profile, cv_data: dict[str, Any], letter_data: dict[str, Any]
+    profile: Profile, cv_data: dict[str, Any]
 ) -> None:
     class PerBatchBackend(FakeBackend):
         def complete(self, prompt: str, system_prompt: str, schema: Any) -> Any:
@@ -216,7 +207,6 @@ def test_batches_are_evaluated_concurrently(
                     "score": 0,
                     "reason": "no",
                     "cv": None,
-                    "cover_letter": None,
                 }
                 for i in ids
             ]

@@ -24,7 +24,8 @@ from a_jobseeker.pipeline import (
     render_match,
 )
 from a_jobseeker.scrapers import SCRAPERS
-from a_jobseeker.templates import CV_TEMPLATES, LETTER_TEMPLATES
+from a_jobseeker.server import create_server
+from a_jobseeker.templates import CV_TEMPLATES
 
 log = logging.getLogger("a_jobseeker")
 
@@ -122,7 +123,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             config,
             profile,
             create_backend(config.ai),
-            create_output(output_config, profile),
+            create_output(output_config, profile, dirs),
             dirs,
         )
         report = pipeline.run(
@@ -163,12 +164,22 @@ def cmd_scrape(args: argparse.Namespace) -> int:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
-    """Render the documents again from edited ``application.json`` files."""
+    """Render the CVs again from edited ``application.json`` files."""
     profile = Profile.load(app_dirs(args).profile_file)
     for path in args.applications:
-        match, cv, letter = load_application(path)
-        render_match(match, profile, cv, letter, path.parent)
-        print(f"{match.cv_path}\n{match.letter_path}")
+        match, cv = load_application(path)
+        render_match(match, profile, cv, path.parent)
+        print(match.cv_path)
+    return EXIT_OK
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Publish the generated CVs over HTTP, for the links of the email output."""
+    root = app_dirs(args).applications
+    with create_server(root, args.host, args.port) as server:
+        address = f"http://{args.host}:{server.server_port}"
+        print(f"serving the CVs of {root} on {address}", file=sys.stderr)
+        server.serve_forever()
     return EXIT_OK
 
 
@@ -182,10 +193,6 @@ def cmd_list(_: argparse.Namespace) -> int:
         ),
         ("Outputs", [(cls.name, cls.description) for cls in OUTPUTS]),
         ("CV templates", [(cls.name, cls.description) for cls in CV_TEMPLATES]),
-        (
-            "Cover letter templates",
-            [(cls.name, cls.description) for cls in LETTER_TEMPLATES],
-        ),
     ]
     for title, items in sections:
         print(f"{title}:")
@@ -229,7 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="a-jobseeker",
         description="Scrape job offers, select the ones matching your profile with "
-        "an AI and generate a tailored CV and cover letter for each.",
+        "an AI and generate a tailored CV for each.",
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
@@ -281,10 +288,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", type=Path, help="output file (default: stdout)")
 
     p = add_command(
-        "render", cmd_render, "render the documents again from application.json files"
+        "render", cmd_render, "render the CVs again from application.json files"
     )
     p.add_argument(
         "applications", nargs="+", type=Path, help="application.json file(s)"
+    )
+
+    p = add_command(
+        "serve", cmd_serve, "publish the CVs over HTTP, for the email output links"
+    )
+    p.add_argument(
+        "--host", default="127.0.0.1", help="listening address (default: 127.0.0.1)"
+    )
+    p.add_argument(
+        "--port", type=int, default=8000, help="listening port (default: 8000)"
     )
 
     add_command("dirs", cmd_dirs, "print the configuration, data and cache directories")

@@ -27,6 +27,7 @@ from a_jobseeker.paths import AppDirs
 from a_jobseeker.pipeline import (
     Pipeline,
     RunOptions,
+    application_dir,
     build_scrapers,
     collect_jobs,
     create_cache,
@@ -38,7 +39,6 @@ from a_jobseeker.pipeline import (
 from a_jobseeker.scrapers import JobScraper, SkipPredicate
 from a_jobseeker.state import SeenStore
 from a_jobseeker.templates.cv_classic import ClassicCV, ClassicCVContent
-from a_jobseeker.templates.letter_classic import ClassicLetter, ClassicLetterContent
 
 
 @pytest.fixture
@@ -47,10 +47,9 @@ def match(
     profile: Profile,
     job: JobOffer,
     cv_content: ClassicCVContent,
-    letter_content: ClassicLetterContent,
 ) -> MatchResult:
-    result = MatchResult(job, 88, "good fit", cv_content, letter_content)
-    render_match(result, profile, ClassicCV(), ClassicLetter(), tmp_path / "app")
+    result = MatchResult(job, 88, "good fit", cv_content)
+    render_match(result, profile, ClassicCV(), tmp_path / "app")
     return result
 
 
@@ -78,10 +77,9 @@ def test_seen_store_roundtrip(tmp_path: Path) -> None:
 def test_render_and_reload_application(match: MatchResult) -> None:
     assert match.cv_path is not None and match.cv_path.name == "cv.pdf"
     assert match.cv_path.exists()
-    assert match.letter_path is not None and match.letter_path.exists()
 
-    loaded, cv, letter = load_application(match.cv_path.parent / "application.json")
-    assert (cv.name, letter.name) == ("classic", "classic")
+    loaded, cv = load_application(match.cv_path.parent / "application.json")
+    assert cv.name == "classic"
     assert loaded.job == match.job
     assert loaded.cv_content == match.cv_content
     assert loaded.reason == "good fit"
@@ -91,41 +89,58 @@ def test_stdout_output(match: MatchResult) -> None:
     stream = io.StringIO()
     StdoutOutput(stream).publish([match])
     report = stream.getvalue()
-    assert "Score        : 88/100" in report
-    assert "Why          : good fit" in report
+    assert "Score : 88/100" in report
+    assert "Why   : good fit" in report
     assert match.job.url in report
     assert "[id: 123]" in report
 
 
 def test_email_output(
-    monkeypatch: pytest.MonkeyPatch, profile: Profile, match: MatchResult
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    profile: Profile,
+    job: JobOffer,
+    cv_content: ClassicCVContent,
 ) -> None:
-    settings: dict[str, Any] = {"smtp_host": "smtp.example.com", "username": "me"}
+    dirs = AppDirs.resolve(tmp_path / "config", tmp_path / "data", tmp_path / "cache")
+    settings: dict[str, Any] = {
+        "smtp_host": "smtp.example.com",
+        "username": "me",
+        "cv_base_url": "https://cv.example.com",
+    }
     with pytest.raises(ConfigError, match="A_JOBSEEKER_SMTP_PASSWORD"):
-        EmailOutput.from_config(settings, profile)
+        EmailOutput.from_config(settings, profile, dirs)
 
     monkeypatch.setenv("A_JOBSEEKER_SMTP_PASSWORD", "secret")
     output = create_output(
-        OutputConfig.model_validate({"type": "email", "email": settings}), profile
+        OutputConfig.model_validate({"type": "email", "email": settings}),
+        profile,
+        dirs,
     )
     assert isinstance(output, EmailOutput)
     assert output.to == "jane@example.com"
 
+    match = MatchResult(job, 88, "good fit", cv_content)
+    directory = application_dir(dirs.applications, job)
+    render_match(match, profile, ClassicCV(), directory)
     message = output.build_message([match], "Subject")
-    attachments = [part.get_filename() for part in message.iter_attachments()]
-    assert attachments == ["cv-123.pdf", "cover-letter-123.pdf"]
+    assert list(message.iter_attachments()) == []
 
     html = message.get_body(("html",))
     assert html is not None
     assert "[id: 123]" in html.get_content()
-    assert "cv-123.pdf, cover-letter-123.pdf" in html.get_content()
+    relative = directory.relative_to(dirs.applications).as_posix()
+    assert f'href="https://cv.example.com/{relative}/cv.pdf">CV</a>' in (
+        html.get_content()
+    )
 
 
 def test_output_registry(profile: Profile) -> None:
     assert OUTPUTS.names() == ["stdout", "email"]
-    assert isinstance(create_output(OutputConfig(), profile), StdoutOutput)
+    dirs = AppDirs.resolve()
+    assert isinstance(create_output(OutputConfig(), profile, dirs), StdoutOutput)
     with pytest.raises(ConfigError, match="unknown output"):
-        create_output(OutputConfig(type="fax"), profile)
+        create_output(OutputConfig(type="fax"), profile, dirs)
 
 
 def test_config_validation(tmp_path: Path) -> None:
@@ -261,7 +276,9 @@ class RecordingOutput(Output):
         self.logs = ""
 
     @classmethod
-    def from_config(cls, settings: Any, profile: Profile) -> "RecordingOutput":
+    def from_config(
+        cls, settings: Any, profile: Profile, dirs: AppDirs
+    ) -> "RecordingOutput":
         return cls()
 
     def publish(self, matches: Sequence[MatchResult], logs: str = "") -> None:
@@ -270,15 +287,14 @@ class RecordingOutput(Output):
 
 
 class AcceptAllBackend(AIBackend):
-    """Selects every offer, with the given documents content."""
+    """Selects every offer, with the given CV content."""
 
     name = "accept-all"
     default_path = sys.executable
 
-    def __init__(self, cv: dict[str, Any], letter: dict[str, Any]) -> None:
+    def __init__(self, cv: dict[str, Any]) -> None:
         super().__init__(sys.executable, timeout=1, max_attempts=1)
         self.cv = cv
-        self.letter = letter
 
     @classmethod
     def from_config(cls, config: AIConfig) -> "AcceptAllBackend":
@@ -293,7 +309,6 @@ class AcceptAllBackend(AIBackend):
                 "score": 50 + n,
                 "reason": "fit",
                 "cv": self.cv,
-                "cover_letter": self.letter,
             }
             for n, i in enumerate(ids)
         ]
@@ -305,7 +320,6 @@ def test_pipeline_run_scrapes_evaluates_and_publishes(
     profile: Profile,
     job: JobOffer,
     cv_data: dict[str, Any],
-    letter_data: dict[str, Any],
 ) -> None:
     config = Config.model_validate(
         {
@@ -315,9 +329,7 @@ def test_pipeline_run_scrapes_evaluates_and_publishes(
     )
     dirs = AppDirs.resolve(tmp_path, tmp_path, tmp_path)
     output = RecordingOutput()
-    pipeline = Pipeline(
-        config, profile, AcceptAllBackend(cv_data, letter_data), output, dirs
-    )
+    pipeline = Pipeline(config, profile, AcceptAllBackend(cv_data), output, dirs)
     offers = [job, job.model_copy(update={"id": "2", "title": "Data Engineer"})]
     pipeline.scrapers = {"linkedin": ScriptedScraper({"python": offers})}
     log_buffer = io.StringIO()
@@ -341,7 +353,7 @@ def test_pipeline_run_without_log_buffer(
     )
     dirs = AppDirs.resolve(tmp_path, tmp_path, tmp_path)
     output = RecordingOutput()
-    pipeline = Pipeline(config, profile, AcceptAllBackend({}, {}), output, dirs)
+    pipeline = Pipeline(config, profile, AcceptAllBackend({}), output, dirs)
     pipeline.scrapers = {"linkedin": ScriptedScraper({"python": []})}
 
     pipeline.run(RunOptions(ignore_seen=True))
