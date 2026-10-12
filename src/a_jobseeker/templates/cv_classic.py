@@ -1,14 +1,16 @@
 """Classic single-column CV, optimized for applicant tracking systems (ATS)."""
 
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 
 from pydantic import Field
 from reportlab.lib.colors import HexColor
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     Flowable,
     HRFlowable,
@@ -21,13 +23,29 @@ from a_jobseeker.config import Profile
 from a_jobseeker.models import JobOffer
 from a_jobseeker.templates.base import ContentModel, CVTemplate, DocumentContent
 from a_jobseeker.templates.locale import Locale
-from a_jobseeker.templates.pdf import clean, link
+from a_jobseeker.templates.pdf import clean, link, plain
 
-ACCENT = HexColor("#1F4E79")
-TEXT = HexColor("#1A1A1A")
-MUTED_HEX = "#555555"
+# Shades of grey only: the CV must print the same on any printer.
+HEADING = HexColor("#1C1C1C")
+TEXT = HexColor("#2B2B2B")
+ACCENT_HEX = "#4D4D4D"
+ACCENT = HexColor(ACCENT_HEX)
+MUTED_HEX = "#707070"
 MUTED = HexColor(MUTED_HEX)
+RULE = HexColor("#D9D9D9")
+
+FONT = "Helvetica"
+FONT_BOLD = "Helvetica-Bold"
+PAGE_WIDTH, PAGE_HEIGHT = A4
+MARGIN_X = 1.7 * cm
+MARGIN_Y = 1.5 * cm
+# SimpleDocTemplate pads its frame by this much on every side.
+FRAME_PADDING = 6
 LAYOUT_SCALES = (1.0, 0.95, 0.9, 0.85)
+# How far the gaps between blocks may grow to fill a page left partly empty.
+MAX_GAP = 2.0
+# Share of the free height the gaps may take: keeps rounding from adding a page.
+GAP_SAFETY = 0.98
 
 Styles = dict[str, ParagraphStyle]
 
@@ -37,30 +55,17 @@ class Experience(ContentModel):
 
     title: str
     company: str
-    location: str = Field(description='Location, "" if unknown.')
-    contract: str = Field(
-        description=(
-            'Contract type (permanent, internship, freelance...), "" if unknown.'
-        )
-    )
     start: str = Field(description='Short date, e.g. "Dec 2025".')
     end: str = Field(description='Short date, or the word for "present".')
-    highlights: list[str] = Field(
+    description: str = Field(
         description=(
-            "3-4 items: action verb + what was done, stressing what matters for "
-            "the offer."
+            "1-2 sentences (max 40 words): what was done, stressing what matters "
+            "for the offer."
         )
     )
-
-
-class Project(ContentModel):
-    """A personal or academic project."""
-
-    name: str
-    date: str = Field(description='Short date, "" if unknown.')
-    description: str = Field(description="1-2 sentences.")
-    technologies: list[str]
-    url: str = Field(description='"" if unknown.')
+    technologies: list[str] = Field(
+        description="Exact, standard names, offer keywords first, 8 max."
+    )
 
 
 class SkillGroup(ContentModel):
@@ -72,14 +77,22 @@ class SkillGroup(ContentModel):
     )
 
 
+class Project(ContentModel):
+    """A personal or academic project."""
+
+    name: str
+    description: str = Field(description="1 sentence.")
+    technologies: list[str] = Field(description="4 max.")
+    url: str = Field(description='"" if unknown.')
+
+
 class Education(ContentModel):
     """A degree or training."""
 
-    degree: str
     school: str
-    location: str
-    start: str
-    end: str
+    degree: str
+    start: str = Field(description='Year, "" if unknown.')
+    end: str = Field(description='Year, "" if unknown.')
     details: str = Field(description='Optional short line, "" if none.')
 
 
@@ -112,11 +125,11 @@ class ClassicCVContent(DocumentContent):
     experiences: list[Experience] = Field(
         description="Most relevant experiences, reverse chronological order, 4 max."
     )
-    projects: list[Project] = Field(
-        description="2-4 projects most relevant to the offer."
-    )
     skills: list[SkillGroup] = Field(
         description="3-6 categories, offer keywords first."
+    )
+    projects: list[Project] = Field(
+        description="2-4 projects most relevant to the offer."
     )
     education: list[Education] = Field(description="Most recent first.")
     languages: list[SpokenLanguage] = Field(
@@ -142,49 +155,93 @@ class ClassicCV(CVTemplate):
     def render(
         self, content: ClassicCVContent, profile: Profile, job: JobOffer, path: Path
     ) -> None:
-        """Write the CV, tightening the layout when it makes it fit on one page."""
-        default, pages = _build(content, profile, LAYOUT_SCALES[0])
-        pdf = default
+        """Write the CV, laid out to fill a single page whenever it can.
+
+        A CV too long for one page is tightened until it fits; one leaving the
+        page partly empty gets wider gaps, then is centered vertically.
+        """
+        layout = _Layout()
+        default = built = _build(content, profile, layout)
         for scale in LAYOUT_SCALES[1:]:
-            if pages == 1:
+            if built.pages == 1:
                 break
-            pdf, pages = _build(content, profile, scale)
-        # A CV too long for one page keeps the default, most readable, layout.
-        path.write_bytes(pdf if pages == 1 else default)
+            layout = _Layout(scale=scale)
+            built = _build(content, profile, layout)
+        if built.pages > 1:
+            # A CV too long for one page keeps the default, most readable, layout.
+            path.write_bytes(default.pdf)
+            return
+
+        # Gaps are the only height growing with ``gap``: measure them without any.
+        gaps = _build(content, profile, replace(layout, gap=0)).free - built.free
+        gap = min(MAX_GAP, 1 + GAP_SAFETY * built.free / gaps)
+        left = built.free - (gap - 1) * gaps
+        path.write_bytes(
+            _build(content, profile, replace(layout, gap=gap, shift=left / 2)).pdf
+        )
 
 
 # --------------------------------------------------------------------------- #
-# Sections
+# Layout
 # --------------------------------------------------------------------------- #
 
 
-def _build(
-    content: ClassicCVContent, profile: Profile, scale: float
-) -> tuple[bytes, int]:
+@dataclass(frozen=True)
+class _Layout:
+    """Knobs adapting the layout to the amount of content."""
+
+    scale: float = 1.0  # Shrinks text, line heights and margins.
+    gap: float = 1.0  # Multiplies the vertical gaps between blocks.
+    shift: float = 0.0  # Moves the content down, in points.
+
+
+@dataclass(frozen=True)
+class _Built:
+    pdf: bytes
+    pages: int
+    free: float  # Height left under the content of the last page, in points.
+
+
+class _Probe(Flowable):  # type: ignore[misc]  # reportlab is untyped
+    """Invisible flowable recording where the content ends on its page."""
+
+    y = 0.0
+
+    def draw(self) -> None:
+        """Record the vertical position reached by the story."""
+        self.y = self.canv.absolutePosition(0, 0)[1]
+
+
+def _build(content: ClassicCVContent, profile: Profile, layout: _Layout) -> _Built:
     locale = content.locale
-    st = _styles(scale)
+    st = _styles(layout)
+    margin_x = MARGIN_X * layout.scale
+    margin_y = MARGIN_Y * layout.scale
+    width = PAGE_WIDTH - 2 * margin_x
+    probe = _Probe()
     story = [
         *_header(content, profile, st),
         *_summary(content, locale, st),
-        *_experiences(content, locale, st),
-        *_projects(content, locale, st),
+        *_experiences(content, locale, st, width),
         *_skills(content, locale, st),
+        *_projects(content, st),
         *_education(content, locale, st),
-        *_languages(content, locale, st),
     ]
     for extra in content.additional_sections:
         if extra.items:
-            story += [*_section(extra.heading, st), *_bullets(extra.items, st)]
+            story += _section(extra.heading, st)
+            story += [Paragraph(clean(item), st["body"]) for item in extra.items]
+    story.append(probe)
 
     output = BytesIO()
     identity = profile.identity
     doc = SimpleDocTemplate(
         output,
         pagesize=A4,
-        leftMargin=1.7 * cm * scale,
-        rightMargin=1.7 * cm * scale,
-        topMargin=1.3 * cm * scale,
-        bottomMargin=1.3 * cm * scale,
+        leftMargin=margin_x - FRAME_PADDING,
+        rightMargin=margin_x - FRAME_PADDING,
+        topMargin=margin_y - FRAME_PADDING + layout.shift,
+        bottomMargin=margin_y - FRAME_PADDING,
         title=f"CV - {identity.full_name} - {content.title}",
         author=identity.full_name,
         subject=content.title,
@@ -193,7 +250,51 @@ def _build(
         lang=content.language,
     )
     doc.build(story)
-    return output.getvalue(), int(doc.page)
+    return _Built(output.getvalue(), int(doc.page), probe.y - margin_y)
+
+
+def _styles(layout: _Layout) -> Styles:
+    scale = layout.scale
+    font_scale = min(1.0, scale + 0.05)  # Spacing shrinks faster than text.
+
+    def style(
+        name: str,
+        size: float,
+        leading: float,
+        font: str = FONT,
+        color: HexColor = TEXT,
+        space_before: float = 0,
+        alignment: int = TA_LEFT,
+    ) -> ParagraphStyle:
+        return ParagraphStyle(
+            name,
+            fontName=font,
+            fontSize=size * font_scale,
+            leading=leading * scale,
+            textColor=color,
+            alignment=alignment,
+            spaceBefore=space_before * scale * layout.gap,
+        )
+
+    return {
+        "name": style("name", 22, 26, font=FONT_BOLD, color=HEADING),
+        "title": style("title", 11, 14, font=FONT_BOLD, color=ACCENT, space_before=4),
+        "contact": style("contact", 9, 11.5, color=MUTED, space_before=5),
+        "links": style("links", 9, 11.5, color=ACCENT, space_before=2),
+        "section": style(
+            "section", 11, 13.5, font=FONT_BOLD, color=HEADING, space_before=9
+        ),
+        "entry": style("entry", 9.5, 12.5, font=FONT_BOLD, color=HEADING),
+        "date": style("date", 9, 12.5, color=MUTED, alignment=TA_RIGHT),
+        "text": style("text", 9.5, 12.5, space_before=2),
+        "tech": style("tech", 9, 11.5, space_before=2),
+        "body": style("body", 9.5, 12.5, space_before=4),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Sections
+# --------------------------------------------------------------------------- #
 
 
 def _header(content: ClassicCVContent, profile: Profile, st: Styles) -> list[Flowable]:
@@ -201,13 +302,16 @@ def _header(content: ClassicCVContent, profile: Profile, st: Styles) -> list[Flo
     contact = [
         clean(v) for v in (identity.location, identity.phone, identity.email) if v
     ]
-    contact += [link(item.url) for item in identity.links]
+    links = [link(item.url) for item in identity.links]
+    separator = f'<font color="{MUTED_HEX}">  |  </font>'
     story = [
         Paragraph(clean(identity.full_name), st["name"]),
-        Paragraph(clean(content.title), st["title"]),
+        Paragraph(clean(content.title.upper()), st["title"]),
     ]
     if contact:
         story.append(Paragraph("  |  ".join(contact), st["contact"]))
+    if links:
+        story.append(Paragraph(separator.join(links), st["links"]))
     return story
 
 
@@ -221,42 +325,21 @@ def _summary(content: ClassicCVContent, locale: Locale, st: Styles) -> list[Flow
 
 
 def _experiences(
-    content: ClassicCVContent, locale: Locale, st: Styles
+    content: ClassicCVContent, locale: Locale, st: Styles, width: float
 ) -> list[Flowable]:
     if not content.experiences:
         return []
     story = _section(locale.cv.experiences, st)
     for exp in content.experiences:
+        head = " \u2014 ".join(clean(v) for v in (exp.title, exp.company) if v)
         block = [
-            Paragraph(
-                f"<b>{clean(exp.title)}</b>  |  {clean(exp.company)}", st["entry"]
-            ),
-            Paragraph(
-                _join(_period(exp.start, exp.end), exp.location, exp.contract),
-                st["meta"],
-            ),
-            *_bullets(exp.highlights, st),
+            _dated(head, _period(exp.start, exp.end), st, width),
+            Paragraph(clean(exp.description), st["text"]),
         ]
-        story.append(KeepTogether(block))
-    return story
-
-
-def _projects(content: ClassicCVContent, locale: Locale, st: Styles) -> list[Flowable]:
-    if not content.projects:
-        return []
-    story = _section(locale.cv.projects, st)
-    for project in content.projects:
-        head = f"<b>{clean(project.name)}</b>"
-        if project.url:
-            head += f"  |  {link(project.url)}"
-        if project.date:
-            head += f'  |  <font color="{MUTED_HEX}">{clean(project.date)}</font>'
-        block = [
-            Paragraph(head, st["entry"]),
-            Paragraph(clean(project.description), st["body"]),
-        ]
-        if project.technologies:
-            block.append(Paragraph(clean(", ".join(project.technologies)), st["tech"]))
+        if exp.technologies:
+            label = _muted(f"{locale.cv.technologies}{locale.colon}")
+            names = clean(", ".join(exp.technologies))
+            block.append(Paragraph(f"{label} {names}", st["tech"]))
         story.append(KeepTogether(block))
     return story
 
@@ -266,39 +349,53 @@ def _skills(content: ClassicCVContent, locale: Locale, st: Styles) -> list[Flowa
         return []
     story = _section(locale.cv.skills, st)
     for group in content.skills:
-        label = f"<b>{clean(group.category)}{locale.colon}</b>"
-        story.append(Paragraph(f"{label} {clean(', '.join(group.items))}", st["body"]))
+        line = f"{group.category}{locale.colon} {', '.join(group.items)}"
+        story.append(Paragraph(clean(line), st["body"]))
+    return story
+
+
+def _projects(content: ClassicCVContent, st: Styles) -> list[Flowable]:
+    if not content.projects:
+        return []
+    story = _section(content.locale.cv.projects, st)
+    for project in content.projects:
+        name = clean(project.name)
+        if project.url:
+            name = link(project.url, project.name)
+        text = f"{name} \u2014 {clean(project.description)}"
+        if project.technologies:
+            text += f" {_muted('(' + ', '.join(project.technologies) + ')')}"
+        story.append(Paragraph(text, st["body"]))
     return story
 
 
 def _education(content: ClassicCVContent, locale: Locale, st: Styles) -> list[Flowable]:
-    if not content.education:
+    labels = []
+    if content.education:
+        labels.append(locale.cv.education)
+    if content.languages:
+        labels.append(locale.cv.languages)
+    if not labels:
         return []
-    story = _section(locale.cv.education, st)
+    story = _section(" & ".join(labels), st)
     for edu in content.education:
-        block = [
-            Paragraph(
-                f"<b>{clean(edu.degree)}</b>  |  {clean(edu.school)}", st["entry"]
-            ),
-            Paragraph(_join(_period(edu.start, edu.end), edu.location), st["meta"]),
-        ]
+        text = " \u2014 ".join(clean(v) for v in (edu.school, edu.degree) if v)
+        period = _period(edu.start, edu.end)
+        if period:
+            text += f" {_muted('(' + period + ')')}"
+        block = [Paragraph(text, st["body"])]
         if edu.details:
-            block.append(Paragraph(clean(edu.details), st["body"]))
+            block.append(Paragraph(clean(edu.details), st["text"]))
         story.append(KeepTogether(block))
+    if content.languages:
+        names = [
+            f"{s.language} ({s.level})" if s.level else s.language
+            for s in content.languages
+        ]
+        label = f"{locale.cv.languages}{locale.colon}"
+        line = f"{label} " + " \u00b7 ".join(names)
+        story.append(Paragraph(clean(line), st["body"]))
     return story
-
-
-def _languages(content: ClassicCVContent, locale: Locale, st: Styles) -> list[Flowable]:
-    if not content.languages:
-        return []
-    names = [
-        f"{s.language} ({s.level})" if s.level else s.language
-        for s in content.languages
-    ]
-    return [
-        *_section(locale.cv.languages, st),
-        Paragraph(clean(", ".join(names)), st["body"]),
-    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -306,101 +403,62 @@ def _languages(content: ClassicCVContent, locale: Locale, st: Styles) -> list[Fl
 # --------------------------------------------------------------------------- #
 
 
-def _styles(scale: float) -> Styles:
-    font_scale = min(1.0, scale + 0.05)  # Spacing shrinks faster than text.
-
-    def style(
-        name: str,
-        size: float,
-        leading: float,
-        font: str = "Helvetica",
-        color: HexColor = TEXT,
-        space_before: float = 0,
-    ) -> ParagraphStyle:
-        return ParagraphStyle(
-            name,
-            fontName=font,
-            fontSize=size * font_scale,
-            leading=leading * scale,
-            textColor=color,
-            alignment=TA_LEFT,
-            spaceBefore=space_before * scale,
-        )
-
-    return {
-        "name": style("name", 20, 24, font="Helvetica-Bold"),
-        "title": style("title", 12, 16, font="Helvetica-Bold", color=ACCENT),
-        "contact": style("contact", 8.5, 11, color=MUTED),
-        "section": style(
-            "section", 10.5, 13, font="Helvetica-Bold", color=ACCENT, space_before=8
-        ),
-        "entry": style("entry", 10, 13, space_before=4),
-        "meta": style("meta", 8.5, 11, font="Helvetica-Oblique", color=MUTED),
-        "body": style("body", 9.5, 12.5),
-        "tech": style("tech", 8.5, 11, font="Helvetica-Oblique", color=MUTED),
-        "bullet": style("bullet", 9.5, 12),
-    }
-
-
 def _section(title: str, st: Styles) -> list[Flowable]:
     return [
         Paragraph(clean(title.upper()), st["section"]),
         HRFlowable(
-            width="100%", thickness=0.6, color=ACCENT, spaceBefore=1, spaceAfter=2
+            width="100%", thickness=0.7, color=RULE, spaceBefore=3, spaceAfter=0
         ),
     ]
 
 
-def _bullets(items: list[str], st: Styles) -> list[Flowable]:
-    return [BulletItem(Paragraph(clean(item), st["bullet"])) for item in items]
+def _dated(head: str, period: str, st: Styles, width: float) -> Flowable:
+    date = st["date"]
+    date_width = stringWidth(plain(period), date.fontName, date.fontSize) + 2
+    item = DatedHeading(
+        Paragraph(head, st["entry"]), Paragraph(clean(period), date), date_width
+    )
+    item.spaceBefore = st["body"].spaceBefore
+    return item
 
 
-def _period(start: str, end: str) -> str:
-    return " - ".join(v for v in (start, end) if v)
+class DatedHeading(Flowable):  # type: ignore[misc]  # reportlab is untyped
+    """Heading with its period aligned on the right margin.
 
-
-def _join(*parts: str) -> str:
-    return clean("  |  ".join(p for p in parts if p))
-
-
-class BulletItem(Flowable):  # type: ignore[misc]  # reportlab is untyped
-    """Paragraph preceded by a bullet drawn as a shape.
-
-    The bullet is kept out of the text layer: a bullet glyph in a standard font is
-    extracted as garbage by some parsers (pdfminer yields "(cid:127)").
+    Both are plain paragraphs drawn side by side, heading first: unlike a table,
+    the text layer stays in reading order for ATS parsers.
     """
 
-    def __init__(self, paragraph: Paragraph, dot: bool = True) -> None:
+    GUTTER = 8
+
+    def __init__(self, head: Paragraph, date: Paragraph, date_width: float) -> None:
         super().__init__()
-        self.paragraph = paragraph
-        self.dot = dot
-        self.indent = paragraph.style.fontSize * 1.2
+        self.head = head
+        self.date = date
+        self.date_width = date_width
 
     def wrap(
         self, available_width: float, available_height: float
     ) -> tuple[float, float]:
-        """Compute the item size for the available space."""
-        _, self.height = self.paragraph.wrap(
-            available_width - self.indent, available_height
-        )
+        """Compute the heading size for the available space."""
         self.width = available_width
+        _, self.height = self.head.wrap(
+            available_width - self.date_width - self.GUTTER, available_height
+        )
+        _, self.date_height = self.date.wrap(self.date_width, available_height)
         return self.width, self.height
 
-    def split(self, available_width: float, available_height: float) -> list[Flowable]:
-        """Split the item across frames; only the first part keeps the bullet."""
-        parts = self.paragraph.split(available_width - self.indent, available_height)
-        return [BulletItem(part, dot=i == 0) for i, part in enumerate(parts)]
-
     def draw(self) -> None:
-        """Draw the bullet and the paragraph."""
-        if self.dot:
-            size = self.paragraph.style.fontSize
-            self.canv.setFillColor(self.paragraph.style.textColor)
-            self.canv.circle(
-                self.indent * 0.35,
-                self.height - size * 0.62,
-                size * 0.16,
-                stroke=0,
-                fill=1,
-            )
-        self.paragraph.drawOn(self.canv, self.indent, 0)
+        """Draw the heading, then its period on the first line."""
+        self.head.drawOn(self.canv, 0, 0)
+        self.date.drawOn(
+            self.canv, self.width - self.date_width, self.height - self.date_height
+        )
+
+
+def _muted(text: str) -> str:
+    return f'<font color="{MUTED_HEX}">{clean(text)}</font>'
+
+
+def _period(start: str, end: str) -> str:
+    return " \u2013 ".join(v for v in (start, end) if v)

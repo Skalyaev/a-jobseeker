@@ -20,7 +20,8 @@
   "cv": {
     "summary": "Profil",
     "experiences": "Expérience professionnelle",
-    "projects": "Projets",
+    "projects": "Projets sélectionnés",
+    "technologies": "Technologies",
     "skills": "Compétences techniques",
     "education": "Formation",
     "languages": "Langues"

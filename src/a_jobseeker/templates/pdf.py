@@ -28,8 +28,8 @@ _FALLBACKS = {
 }
 
 
-def clean(text: object) -> str:
-    """Return ``text`` escaped and encodable for a ReportLab Paragraph in cp1252."""
+def plain(text: object) -> str:
+    """Return ``text`` restricted to what the standard PDF fonts can draw (cp1252)."""
     out = []
     for char in unicodedata.normalize("NFC", str(text or "")):
         mapped = _FALLBACKS.get(char, char)
@@ -39,12 +39,17 @@ def clean(text: object) -> str:
             decomposed = unicodedata.normalize("NFKD", mapped)
             mapped = decomposed.encode("cp1252", "ignore").decode("cp1252")
         out.append(mapped)
-    return escape("".join(out))
+    return "".join(out)
 
 
-def link(url: str) -> str:
-    """Return Paragraph markup for a link whose visible text is the URL itself."""
-    shown = (
+def clean(text: object) -> str:
+    """Return ``text`` escaped and encodable for a ReportLab Paragraph in cp1252."""
+    return escape(plain(text))
+
+
+def link(url: str, text: str = "") -> str:
+    """Return Paragraph markup for a link showing ``text``, or the URL itself."""
+    shown = text or (
         url.removeprefix("https://")
         .removeprefix("http://")
         .removeprefix("www.")

@@ -91,11 +91,11 @@ Options available on every command:
 
 ## Files and directories
 
-| Directory                    | Content                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| `~/.config/a-jobseeker`      | `config.json` and `profile.json`                                                    |
+| Directory                    | Content                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `~/.config/a-jobseeker`      | `config.json` and `profile.json`                                              |
 | `~/.local/share/a-jobseeker` | `applications/`: the generated CVs; `seen.json`: the offers already evaluated |
-| `~/.cache/a-jobseeker`       | `offers/`: the scraped offer details, kept `scraping.cache_max_age_days` days       |
+| `~/.cache/a-jobseeker`       | `offers/`: the scraped offer details, kept `scraping.cache_max_age_days` days |
 
 When set, `$XDG_CONFIG_HOME`, `$XDG_DATA_HOME` and `$XDG_CACHE_HOME` replace `~/.config`,
 `~/.local/share` and `~/.cache`. The command line options take precedence over both.
@@ -430,11 +430,12 @@ Single column, designed to be parsed correctly by ATS (applicant tracking system
 
 - no table, image or icon; selectable text in reading order;
 - standard PDF fonts, conventional section headings ("Professional Experience", "Education"...);
-- bullets drawn as shapes (no garbage glyph in the extracted text), links displayed in plain text;
+- shades of grey only, links displayed in plain text;
 - PDF metadata filled in (title, author, keywords);
-- layout automatically tightened when it makes the CV fit on one page.
+- layout automatically tightened when it makes the CV fit on one page;
+- gaps widened, then content centered vertically, when the CV leaves the page partly empty.
 
-Sections: professional title and summary, experiences, projects, technical skills, education,
+Sections: professional title and summary, experiences, technical skills, projects, education and
 languages, and optional additional sections (certifications, CTF...).
 
 ## How it works
@@ -476,12 +477,6 @@ make check # formats, lints, type checks, and runs the tests
 ```
 
 `make check` fails when the tests do not cover every line and branch of the code.
-
-To publish a new version on PyPI:
-
-1. Update `__version__` in `src/a_jobseeker/__init__.py`, and check the package with `make dist`.
-2. Commit and push, then publish a GitHub release whose tag is the version prefixed by `v` (e.g. `v0.2.0`).
-3. The `Publish` workflow runs the checks, builds the package and uploads it to PyPI.
 
 | Extension   | Base class                         | Registry                                 |
 | ----------- | ---------------------------------- | ---------------------------------------- |

@@ -65,31 +65,25 @@ def cv_data() -> dict[str, Any]:
             {
                 "title": "Backend developer",
                 "company": "Example Inc.",
-                "location": "Paris",
-                "contract": "Permanent",
                 "start": "Jan 2023",
                 "end": "Present",
-                "highlights": [
-                    "Built the parcel tracking API with FastAPI.",
-                    "Set up CI/CD <GitLab> & Docker.",
-                ],
+                "description": "Built the API. Set up CI/CD <GitLab> & Docker.",
+                "technologies": ["Python", "FastAPI"],
             }
         ],
+        "skills": [{"category": "Languages", "items": ["Python", "Go", "SQL"]}],
         "projects": [
             {
                 "name": "sync-tool",
-                "date": "Jun 2024",
                 "description": "File synchronization tool.",
                 "technologies": ["Go"],
                 "url": "https://github.com/jane/sync-tool",
             }
         ],
-        "skills": [{"category": "Languages", "items": ["Python", "Go", "SQL"]}],
         "education": [
             {
-                "degree": "MSc Computer Science",
                 "school": "Example University",
-                "location": "Lyon",
+                "degree": "MSc Computer Science",
                 "start": "2020",
                 "end": "2022",
                 "details": "",

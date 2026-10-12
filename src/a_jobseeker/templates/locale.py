@@ -24,6 +24,7 @@ class CVLabels(_LocaleModel):
     summary: str
     experiences: str
     projects: str
+    technologies: str
     skills: str
     education: str
     languages: str
