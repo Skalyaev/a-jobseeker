@@ -10,6 +10,7 @@ import logging
 from collections.abc import Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -18,6 +19,7 @@ from a_jobseeker.config import Profile
 from a_jobseeker.errors import AIError
 from a_jobseeker.models import JobOffer, MatchResult
 from a_jobseeker.templates import CVTemplate
+from a_jobseeker.templates.base import DocumentContent
 from a_jobseeker.templates.locale import document_language, get_locale
 
 log = logging.getLogger(__name__)
@@ -103,11 +105,13 @@ class BatchResult:
 
 def build_answer_model(job_ids: Sequence[str], cv: CVTemplate) -> type[Evaluations]:
     """Build the answer model (its JSON schema) for a batch and the chosen template."""
+    # mypy cannot see a union built at runtime as a type: state what it is.
+    content = cast("type[DocumentContent | None]", cv.content_model | None)
     evaluation = create_model(
         "Evaluation",
         __base__=Evaluation,
         job_id=(str, Field(json_schema_extra={"enum": list(job_ids)})),
-        cv=(cv.content_model | None, ...),
+        cv=(content, ...),
     )
     count = len(job_ids)
     return create_model(
