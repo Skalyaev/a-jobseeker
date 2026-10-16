@@ -65,6 +65,7 @@ def cv_data() -> dict[str, Any]:
             {
                 "title": "Backend developer",
                 "company": "Example Inc.",
+                "contract": "Permanent",
                 "start": "Jan 2023",
                 "end": "Present",
                 "description": "Built the API. Set up CI/CD <GitLab> & Docker.",

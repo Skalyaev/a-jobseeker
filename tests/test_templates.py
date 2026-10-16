@@ -47,7 +47,7 @@ def test_cv_is_single_page_and_parsable(
         "jane@example.com",
         "github.com/jane",
         locale.cv.experiences.upper(),
-        "Backend developer \u2014 Example Inc.",
+        "Backend developer \u2014 Example Inc. (Permanent)",
         "Jan 2023 \u2013 Present",
         "Set up CI/CD <GitLab> & Docker.",
         "Technologies: Python, FastAPI",
@@ -134,7 +134,9 @@ def test_minimal_cv(tmp_path: Path, job: JobOffer, cv_data: dict[str, Any]) -> N
     minimal = {
         **cv_data,
         "summary": "",
-        "experiences": [{**cv_data["experiences"][0], "technologies": []}],
+        "experiences": [
+            {**cv_data["experiences"][0], "contract": "", "technologies": []}
+        ],
         "projects": [
             {"name": "bare", "description": "No link.", "technologies": [], "url": ""}
         ],

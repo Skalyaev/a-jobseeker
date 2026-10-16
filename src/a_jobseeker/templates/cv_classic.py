@@ -55,6 +55,12 @@ class Experience(ContentModel):
 
     title: str
     company: str
+    contract: str = Field(
+        description=(
+            'Employment type in the document language, e.g. "Permanent", '
+            '"Internship", "Freelance"; "" if unknown.'
+        )
+    )
     start: str = Field(description='Short date, e.g. "Dec 2025".')
     end: str = Field(description='Short date, or the word for "present".')
     description: str = Field(
@@ -332,6 +338,8 @@ def _experiences(
     story = _section(locale.cv.experiences, st)
     for exp in content.experiences:
         head = " \u2014 ".join(clean(v) for v in (exp.title, exp.company) if v)
+        if exp.contract:
+            head += f" {_muted('(' + exp.contract + ')')}"
         block = [
             _dated(head, _period(exp.start, exp.end), st, width),
             Paragraph(clean(exp.description), st["text"]),
